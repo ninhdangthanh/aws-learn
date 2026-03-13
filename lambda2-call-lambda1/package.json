@@ -1,0 +1,10 @@
+{
+  "name": "lambda2-call-lambda1",
+  "version": "1.0.0",
+  "description": "Lambda 2 invokes Lambda 1",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-lambda": "^3.840.0"
+  }
+}

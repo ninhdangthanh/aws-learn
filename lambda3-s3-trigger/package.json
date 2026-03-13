@@ -1,0 +1,7 @@
+{
+  "name": "lambda3-s3-trigger",
+  "version": "1.0.0",
+  "description": "Lambda 3 triggered by S3 file upload, logs file name",
+  "main": "index.js",
+  "type": "commonjs"
+}

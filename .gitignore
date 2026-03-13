@@ -1,0 +1,20 @@
+# Node.js dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+
+# Environment variables
+.env
+
+# Build output
+dist/
+build/
+
+# Lambda artifacts
+*.zip
+*.jar

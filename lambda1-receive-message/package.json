@@ -1,0 +1,7 @@
+{
+  "name": "lambda1-receive-message",
+  "version": "1.0.0",
+  "description": "Lambda 1 receives and logs a message",
+  "main": "index.js",
+  "type": "commonjs"
+}
