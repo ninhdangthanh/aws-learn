@@ -3,6 +3,7 @@ package messaging
 import (
 	"log"
 	"sync"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -16,28 +17,30 @@ var (
 func InitRabbitMQ(url string) {
 	rmqOnce.Do(func() {
 		var err error
-		rmqConnInstance, err = amqp.Dial(url)
-		if err != nil {
-			log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		for i := 0; i < 5; i++ {
+			rmqConnInstance, err = amqp.Dial(url)
+			if err == nil {
+				rmqChannelInstance, err = rmqConnInstance.Channel()
+				if err == nil {
+					err = rmqChannelInstance.ExchangeDeclare(
+						"orders_exchange", // name
+						"topic",           // type
+						true,              // durable
+						false,             // auto-deleted
+						false,             // internal
+						false,             // no-wait
+						nil,               // arguments
+					)
+					if err == nil {
+						log.Println("Connected to RabbitMQ successfully")
+						return
+					}
+				}
+			}
+			log.Printf("Waiting for RabbitMQ (attempt %d/5)... error: %v", i+1, err)
+			time.Sleep(5 * time.Second)
 		}
-
-		rmqChannelInstance, err = rmqConnInstance.Channel()
-		if err != nil {
-			log.Fatalf("Failed to open a channel: %v", err)
-		}
-
-		err = rmqChannelInstance.ExchangeDeclare(
-			"orders_exchange", // name
-			"topic",           // type
-			true,              // durable
-			false,             // auto-deleted
-			false,             // internal
-			false,             // no-wait
-			nil,               // arguments
-		)
-		if err != nil {
-			log.Fatalf("Failed to declare an exchange: %v", err)
-		}
+		log.Fatalf("Could not connect to RabbitMQ after 5 attempts: %v", err)
 	})
 }
 

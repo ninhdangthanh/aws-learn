@@ -3,6 +3,7 @@ package elastic
 import (
 	"log"
 	"sync"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 )
@@ -18,16 +19,23 @@ func InitElasticSearch(url string) {
 			Addresses: []string{url},
 		}
 		var err error
-		esInstance, err = elasticsearch.NewClient(cfg)
-		if err != nil {
-			log.Fatalf("Error creating the elastic search client: %s", err)
-		}
 
-		res, err := esInstance.Info()
-		if err != nil {
-			log.Fatalf("Error getting response from ES: %s", err)
+		for i := 0; i < 5; i++ {
+			esInstance, err = elasticsearch.NewClient(cfg)
+			if err == nil {
+				res, errInfo := esInstance.Info()
+				if errInfo == nil {
+					res.Body.Close()
+					log.Println("Connected to ElasticSearch successfully")
+					EnsureIndices()
+					return
+				}
+				err = errInfo
+			}
+			log.Printf("Waiting for ElasticSearch (attempt %d/5)... error: %v", i+1, err)
+			time.Sleep(5 * time.Second)
 		}
-		defer res.Body.Close()
+		log.Fatalf("Could not connect to ElasticSearch after 5 attempts: %v", err)
 	})
 }
 
