@@ -155,7 +155,7 @@ const file_grpc_order_order_proto_rawDesc = "" +
 	"\x06amount\x18\x04 \x01(\x01R\x06amount\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status2M\n" +
 	"\fOrderService\x12=\n" +
-	"\bGetOrder\x12\x16.order.GetOrderRequest\x1a\x17.order.GetOrderResponse\"\x00B\x18Z\x16go-template/grpc/orderb\x06proto3"
+	"\bGetOrder\x12\x16.order.GetOrderRequest\x1a\x17.order.GetOrderResponse\"\x00B#Z!github.com/go-template/grpc/orderb\x06proto3"
 
 var (
 	file_grpc_order_order_proto_rawDescOnce sync.Once

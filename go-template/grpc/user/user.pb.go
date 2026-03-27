@@ -137,7 +137,7 @@ const file_grpc_user_user_proto_rawDesc = "" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name2G\n" +
 	"\vUserService\x128\n" +
-	"\aGetUser\x12\x14.user.GetUserRequest\x1a\x15.user.GetUserResponse\"\x00B\x17Z\x15go-template/grpc/userb\x06proto3"
+	"\aGetUser\x12\x14.user.GetUserRequest\x1a\x15.user.GetUserResponse\"\x00B\"Z github.com/go-template/grpc/userb\x06proto3"
 
 var (
 	file_grpc_user_user_proto_rawDescOnce sync.Once

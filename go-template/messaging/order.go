@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/go-template/models"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go-template/models"
 )
 
 // PublishOrderCreatedEvent publishes an order creation event via RabbitMQ

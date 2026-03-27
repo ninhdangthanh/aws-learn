@@ -156,7 +156,7 @@ const file_grpc_product_product_proto_rawDesc = "" +
 	"\x05stock\x18\x05 \x01(\x05R\x05stock2Y\n" +
 	"\x0eProductService\x12G\n" +
 	"\n" +
-	"GetProduct\x12\x1a.product.GetProductRequest\x1a\x1b.product.GetProductResponse\"\x00B\x1aZ\x18go-template/grpc/productb\x06proto3"
+	"GetProduct\x12\x1a.product.GetProductRequest\x1a\x1b.product.GetProductResponse\"\x00B%Z#github.com/go-template/grpc/productb\x06proto3"
 
 var (
 	file_grpc_product_product_proto_rawDescOnce sync.Once

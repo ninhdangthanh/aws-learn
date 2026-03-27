@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package user;
 
-option go_package = "go-template/grpc/user";
+option go_package = "github.com/go-template/grpc/user";
 
 service UserService {
   rpc GetUser (GetUserRequest) returns (GetUserResponse) {}

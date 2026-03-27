@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/go-template/models"
 	"github.com/redis/go-redis/v9"
-	"go-template/models"
 )
 
 func CacheUser(user *models.User) error {

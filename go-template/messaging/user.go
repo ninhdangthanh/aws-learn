@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/go-template/models"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go-template/models"
 )
 
 func PublishUserCreatedEvent(user *models.User) error {

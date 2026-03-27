@@ -2,11 +2,12 @@ package service
 
 import (
 	"context"
-	"go-template/database"
-	"go-template/elastic"
-	"go-template/messaging"
-	"go-template/models"
-	"go-template/redis"
+
+	"github.com/go-template/database"
+	"github.com/go-template/elastic"
+	"github.com/go-template/messaging"
+	"github.com/go-template/models"
+	"github.com/go-template/redis"
 )
 
 type OrderService interface {

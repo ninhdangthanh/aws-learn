@@ -1,9 +1,9 @@
 package api
 
 import (
-	"go-template/api/controller"
-	"go-template/api/middleware"
-	"go-template/config"
+	"github.com/go-template/api/controller"
+	"github.com/go-template/api/middleware"
+	"github.com/go-template/config"
 
 	"github.com/gin-gonic/gin"
 )

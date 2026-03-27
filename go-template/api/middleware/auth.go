@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"go-template/redis"
-	"go-template/utils"
+	"github.com/go-template/redis"
+	"github.com/go-template/utils"
 
 	"github.com/gin-gonic/gin"
 )

@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"time"
-	"go-template/database"
-	"go-template/elastic"
-	"go-template/messaging"
-	"go-template/models"
-	"go-template/redis"
-	"go-template/utils"
+
+	"github.com/go-template/database"
+	"github.com/go-template/elastic"
+	"github.com/go-template/messaging"
+	"github.com/go-template/models"
+	"github.com/go-template/redis"
+	"github.com/go-template/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 

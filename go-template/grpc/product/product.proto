@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package product;
 
-option go_package = "go-template/grpc/product";
+option go_package = "github.com/go-template/grpc/product";
 
 service ProductService {
   rpc GetProduct (GetProductRequest) returns (GetProductResponse) {}

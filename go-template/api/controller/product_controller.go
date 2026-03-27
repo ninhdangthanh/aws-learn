@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"go-template/service"
+	"github.com/go-template/service"
 
 	"github.com/gin-gonic/gin"
 )

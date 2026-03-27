@@ -5,7 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go-template/models"
+
+	"github.com/go-template/models"
 )
 
 func IndexOrder(order *models.Order) error {

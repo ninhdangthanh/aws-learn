@@ -1,6 +1,6 @@
 package database
 
-import "go-template/models"
+import "github.com/go-template/models"
 
 func CreateProduct(product *models.Product) error {
 	return GetInstance().Create(product).Error

@@ -3,13 +3,13 @@ package main
 import (
 	"log"
 
-	"go-template/api"
-	"go-template/config"
-	"go-template/database"
-	"go-template/elastic"
-	"go-template/grpc/server"
-	"go-template/messaging"
-	"go-template/redis"
+	"github.com/go-template/api"
+	"github.com/go-template/config"
+	"github.com/go-template/database"
+	"github.com/go-template/elastic"
+	"github.com/go-template/grpc/server"
+	"github.com/go-template/messaging"
+	"github.com/go-template/redis"
 )
 
 func main() {

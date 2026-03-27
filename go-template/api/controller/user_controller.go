@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"go-template/models"
-	"go-template/service"
+	"github.com/go-template/models"
+	"github.com/go-template/service"
 
 	"github.com/gin-gonic/gin"
 )

@@ -5,10 +5,10 @@ import (
 	"log"
 	"net"
 
-	"go-template/grpc/order"
-	"go-template/grpc/product"
-	"go-template/grpc/user"
-	"go-template/service"
+	"github.com/go-template/grpc/order"
+	"github.com/go-template/grpc/product"
+	"github.com/go-template/grpc/user"
+	"github.com/go-template/service"
 
 	"google.golang.org/grpc"
 )

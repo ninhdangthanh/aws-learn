@@ -1,6 +1,6 @@
 package database
 
-import "go-template/models"
+import "github.com/go-template/models"
 
 func CreateOrder(order *models.Order) error {
 	return GetInstance().Create(order).Error
