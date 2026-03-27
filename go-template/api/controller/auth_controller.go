@@ -27,6 +27,10 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
 func (ctrl *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -34,20 +38,38 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := ctrl.svc.Login(c.Request.Context(), req.Email, req.Password, ctrl.cfg.JWTSecret, ctrl.cfg.JWTExpirationHours)
+	res, err := ctrl.svc.Login(c.Request.Context(), req.Email, req.Password, ctrl.cfg.JWTSecret, ctrl.cfg.JWTExpirationHours, ctrl.cfg.RefreshExpirationDays)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(http.StatusOK, res)
+}
+
+func (ctrl *AuthController) Refresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	res, err := ctrl.svc.RefreshToken(c.Request.Context(), req.RefreshToken, ctrl.cfg.JWTSecret, ctrl.cfg.JWTExpirationHours)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
 }
 
 func (ctrl *AuthController) Logout(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	jti, _ := c.Get("jti")
 
-	if err := ctrl.svc.Logout(c.Request.Context(), userID.(uint), jti.(string)); err != nil {
+	// Note: Fully stateful logout should ideally revoke Refresh tokens too.
+	// For simplicity, we just revoke the specific access token session.
+	if err := ctrl.svc.Logout(c.Request.Context(), userID.(uint), jti.(string), ""); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
 		return
 	}

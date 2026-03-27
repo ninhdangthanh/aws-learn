@@ -13,11 +13,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type AuthResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
 type UserService interface {
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUser(ctx context.Context, id uint) (*models.User, error)
-	Login(ctx context.Context, email, password string, secret string, expirationHours int) (string, error)
-	Logout(ctx context.Context, userID uint, jti string) error
+	Login(ctx context.Context, email, password string, secret string, accessExp, refreshExp int) (*AuthResponse, error)
+	RefreshToken(ctx context.Context, refreshToken string, secret string, accessExp int) (*AuthResponse, error)
+	Logout(ctx context.Context, userID uint, accessJTI, refreshJTI string) error
 	EvictUser(ctx context.Context, userID uint) error
 }
 
@@ -28,13 +34,11 @@ func NewUserService() UserService {
 }
 
 func (s *userService) CreateUser(ctx context.Context, user *models.User) error {
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 	user.Password = string(hashedPassword)
-
 	if err := database.CreateUser(user); err != nil {
 		return err
 	}
@@ -56,34 +60,47 @@ func (s *userService) GetUser(ctx context.Context, id uint) (*models.User, error
 	return user, nil
 }
 
-func (s *userService) Login(ctx context.Context, email, password string, secret string, expirationHours int) (string, error) {
+func (s *userService) Login(ctx context.Context, email, password string, secret string, accessExp, refreshExp int) (*AuthResponse, error) {
 	user, err := database.GetUserByEmail(email)
 	if err != nil {
-		return "", errors.New("user not found")
+		return nil, errors.New("invalid credentials")
 	}
-
-	// Compare password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return "", errors.New("invalid credentials")
+		return nil, errors.New("invalid credentials")
 	}
 
-	// Generate stateful JWT (with JTI)
-	tokenStr, jti, err := utils.GenerateToken(user.ID, secret, expirationHours)
-	if err != nil {
-		return "", err
-	}
+	// Generate Access Token
+	accToken, accJti, _ := utils.GenerateToken(user.ID, "access", secret, time.Duration(accessExp)*time.Hour)
+	_ = redis.SetSession(user.ID, accJti, time.Duration(accessExp)*time.Hour)
 
-	// Store JTI in Redis session 
-	err = redis.SetSession(user.ID, jti, time.Duration(expirationHours)*time.Hour)
-	if err != nil {
-		return "", err
-	}
+	// Generate Refresh Token
+	refToken, refJti, _ := utils.GenerateToken(user.ID, "refresh", secret, time.Duration(refreshExp)*24*time.Hour)
+	_ = redis.SetSession(user.ID, refJti, time.Duration(refreshExp)*24*time.Hour)
 
-	return tokenStr, nil
+	return &AuthResponse{AccessToken: accToken, RefreshToken: refToken}, nil
 }
 
-func (s *userService) Logout(ctx context.Context, userID uint, jti string) error {
-	return redis.RevokeSession(userID, jti)
+func (s *userService) RefreshToken(ctx context.Context, refreshToken string, secret string, accessExp int) (*AuthResponse, error) {
+	claims, err := utils.ValidateToken(refreshToken, secret)
+	if err != nil || claims.Type != "refresh" {
+		return nil, errors.New("invalid refresh token")
+	}
+
+	if !redis.IsSessionValid(claims.UserID, claims.JTI) {
+		return nil, errors.New("session revoked")
+	}
+
+	// Generate New Access Token
+	accToken, accJti, _ := utils.GenerateToken(claims.UserID, "access", secret, time.Duration(accessExp)*time.Hour)
+	_ = redis.SetSession(claims.UserID, accJti, time.Duration(accessExp)*time.Hour)
+
+	return &AuthResponse{AccessToken: accToken, RefreshToken: refreshToken}, nil
+}
+
+func (s *userService) Logout(ctx context.Context, userID uint, accessJTI, refreshJTI string) error {
+	_ = redis.RevokeSession(userID, accessJTI)
+	_ = redis.RevokeSession(userID, refreshJTI)
+	return nil
 }
 
 func (s *userService) EvictUser(ctx context.Context, userID uint) error {

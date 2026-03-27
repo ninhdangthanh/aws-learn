@@ -11,17 +11,19 @@ import (
 
 type JWTClaims struct {
 	UserID uint   `json:"user_id"`
-	JTI    string `json:"jti"` // JWT ID for stateful check
+	JTI    string `json:"jti"`
+	Type   string `json:"type"` // "access" or "refresh"
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID uint, secret string, expirationHours int) (string, string, error) {
+func GenerateToken(userID uint, tokenType string, secret string, expiration time.Duration) (string, string, error) {
 	jti := uuid.New().String()
 	claims := &JWTClaims{
 		UserID: userID,
 		JTI:    jti,
+		Type:   tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expirationHours) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}

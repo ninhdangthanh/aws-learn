@@ -20,6 +20,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	// Public Routes
 	r.POST("/users", userCtrl.CreateUser)
 	r.POST("/login", authCtrl.Login)
+	r.POST("/refresh", authCtrl.Refresh)
 
 	// Protected Routes
 	auth := r.Group("/")
@@ -27,7 +28,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	{
 		// Auth Actions
 		auth.POST("/logout", authCtrl.Logout)
-		auth.POST("/evict/:id", authCtrl.EvictUser) // Evict a vulnerable user
+		auth.POST("/evict/:id", authCtrl.EvictUser)
 
 		// Orders
 		auth.POST("/orders", orderCtrl.CreateOrder)

@@ -17,7 +17,8 @@ type Config struct {
 	GRPCPort          string `envconfig:"GRPC_PORT" default:":50051"`
 	GinPort           string `envconfig:"GIN_PORT" default:":8080"`
 	JWTSecret         string `envconfig:"JWT_SECRET" default:"your-secret-key"`
-	JWTExpirationHours int   `envconfig:"JWT_EXPIRATION_HOURS" default:"24"`
+	JWTExpirationHours int   `envconfig:"JWT_EXPIRATION_HOURS" default:"1"` // Short-lived access
+	RefreshExpirationDays int `envconfig:"REFRESH_EXPIRATION_DAYS" default:"7"` // Longer-lived refresh
 }
 
 func LoadConfig() (*Config, error) {
