@@ -49,7 +49,7 @@ That distinction is exactly RabbitMQ vs Kafka.
 
 ## HIGH LEVEL ARCHITECTURE
 
-Frontend Apps:
+Frontend Apps (keep simple):
 
 * Customer App
 * Driver App
