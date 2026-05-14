@@ -12,7 +12,11 @@ import (
 
 func main() {
 	// Initialize database
-	db, err := database.InitDB("./videocall.db")
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./videocall.db"
+	}
+	db, err := database.InitDB(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}

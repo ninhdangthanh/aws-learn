@@ -1,0 +1,562 @@
+# plan.txt
+
+# Hybrid Messaging Architecture Project
+
+Using BOTH RabbitMQ and Kafka Correctly
+
+Goal:
+Understand:
+
+* where RabbitMQ is the RIGHT tool
+* where Kafka is the RIGHT tool
+* why large systems often use both
+* difference between task processing and event streaming
+* how modern distributed systems separate operational workflows from analytical/event pipelines
+
+---
+
+## PROJECT IDEA
+
+Project name:
+Realtime Food Delivery Platform
+
+Inspired by:
+
+* GrabFood
+* ShopeeFood
+* UberEats
+
+Why this project is perfect:
+Food delivery naturally contains:
+
+* task workflows
+* retries
+* realtime events
+* analytics
+* tracking
+* notifications
+* high event volume
+
+Some problems are:
+"DO this task"
+
+Others are:
+"THIS event happened"
+
+That distinction is exactly RabbitMQ vs Kafka.
+
+---
+
+## HIGH LEVEL ARCHITECTURE
+
+Frontend Apps:
+
+* Customer App
+* Driver App
+* Admin Dashboard
+
+Backend:
+
+* API Gateway
+* Order Service
+* Payment Service
+* Driver Service
+* Notification Service
+* Analytics Service
+* Fraud Detection Service
+
+Messaging:
+RabbitMQ:
+
+* operational workflows
+* task execution
+* retries
+
+Kafka:
+
+* business event stream
+* realtime analytics
+* event history
+* monitoring pipelines
+
+Databases:
+
+* PostgreSQL
+* Redis
+
+Infra:
+
+* Docker Compose
+* Kafka
+* RabbitMQ
+* Kafka UI
+* RabbitMQ Management UI
+
+---
+
+## THE MOST IMPORTANT LEARNING
+
+RabbitMQ handles:
+"Please process this task"
+
+Kafka handles:
+"This business event happened"
+
+---
+
+## SYSTEM FLOW
+
+User places order
+|
+Order Service
+|
+-
+
+|                                              |
+RabbitMQ                                      Kafka
+(Task Workflow)                               (Business Event)
+|                                              |
+Kitchen processing                             Analytics
+Payment retries                                Realtime dashboard
+Driver assignment                              Fraud detection
+Push notification jobs                         Recommendation engine
+Email jobs                                     Audit log
+SMS retry                                      Historical replay
+----------------------------------------------------------------
+
+---
+
+## WHY THIS ARCHITECTURE IS REALISTIC
+
+Operational systems need:
+
+* retries
+* acknowledgements
+* task ownership
+* workflow management
+
+=> RabbitMQ is excellent here.
+
+Business intelligence systems need:
+
+* event history
+* replay
+* streaming
+* fanout to many systems
+* analytics
+
+=> Kafka is excellent here.
+
+---
+
+## PHASE 1 — ORDER CREATION
+
+Feature:
+Customer places order.
+
+Flow:
+Frontend
+-> Order Service
+
+Then TWO things happen:
+
+1. RabbitMQ:
+   create kitchen processing task
+
+2. Kafka:
+   publish OrderCreated event
+
+---
+
+## WHY BOTH?
+
+Kitchen processing:
+
+* specific task
+* must be completed once
+* retry important
+* queue semantics important
+
+=> RabbitMQ
+
+OrderCreated:
+
+* many services interested
+* analytics
+* audit
+* recommendation
+* fraud detection
+* replay valuable
+
+=> Kafka
+
+---
+
+## PHASE 2 — RABBITMQ WORKFLOWS
+
+Goal:
+Learn operational task processing.
+
+RabbitMQ queues:
+
+* kitchen.jobs
+* payment.retry
+* push.notifications
+* sms.notifications
+* email.notifications
+
+Features:
+
+* ACK/NACK
+* retry queue
+* delayed retry
+* DLQ
+* priority queue
+
+Experiments:
+
+* worker crash
+* retry failures
+* poison messages
+
+What to learn:
+RabbitMQ is AMAZING for:
+
+* task ownership
+* retries
+* workflow execution
+* delivery guarantees
+
+---
+
+## PHASE 3 — KAFKA EVENT STREAMING
+
+Kafka topics:
+
+* order.created
+* order.completed
+* payment.failed
+* driver.assigned
+* order.cancelled
+* location.updated
+
+Consumers:
+
+* Analytics Service
+* Fraud Detection
+* Recommendation Engine
+* Audit Service
+* Live Dashboard
+
+What to learn:
+Kafka is AMAZING for:
+
+* many independent consumers
+* replay
+* event history
+* realtime pipelines
+
+---
+
+## PHASE 4 — LIVE ANALYTICS DASHBOARD
+
+Frontend:
+Admin dashboard showing:
+
+* orders/minute
+* revenue/minute
+* active drivers
+* failed payments
+* top restaurants
+
+Data source:
+Kafka stream.
+
+NOT RabbitMQ.
+
+Why?
+Because analytics needs:
+
+* continuous stream
+* historical replay
+* high throughput
+
+---
+
+## PHASE 5 — RETRY COMPARISON
+
+RabbitMQ retry:
+
+* payment retry queue
+* exponential backoff
+* DLX
+
+Kafka retry:
+
+* retry topics
+* dead letter topics
+
+Implement BOTH.
+
+Compare:
+
+* complexity
+* readability
+* operational simplicity
+
+Critical learning:
+RabbitMQ retry is more natural.
+
+---
+
+## PHASE 6 — REPLAY COMPARISON
+
+Kafka:
+Add button:
+"Replay all events from yesterday"
+
+Analytics rebuilds entirely from Kafka.
+
+RabbitMQ:
+Attempt same thing.
+
+Experience:
+
+* difficult
+* unnatural
+* requires custom storage
+
+Critical learning:
+Replay is Kafka's superpower.
+
+---
+
+## PHASE 7 — CONSUMER GROUPS VS WORKERS
+
+RabbitMQ:
+Multiple workers consume queue.
+
+Kafka:
+Multiple consumers inside consumer group.
+
+Observe:
+
+* partition ownership
+* rebalance
+* lag
+
+Critical lesson:
+Kafka scaling model is partition-based.
+
+---
+
+## PHASE 8 — ORDER TRACKING SYSTEM
+
+Driver app sends:
+location.updated
+
+Frequency:
+every 2 seconds.
+
+Use Kafka.
+
+Why NOT RabbitMQ?
+Because:
+
+* high event volume
+* realtime streaming
+* multiple downstream consumers
+* historical analysis valuable
+
+Consumers:
+
+* live map
+* ETA service
+* analytics
+* fraud detection
+
+---
+
+## PHASE 9 — NOTIFICATION SYSTEM
+
+Notification Service:
+
+* send push
+* send email
+* send SMS
+
+Use RabbitMQ.
+
+Why?
+Because:
+
+* these are tasks
+* retry matters
+* exactly-one processing desired
+* workflow semantics important
+
+NOT historical event streaming.
+
+---
+
+## PHASE 10 — FRAUD DETECTION
+
+Kafka consumer:
+analyze:
+
+* payment failures
+* suspicious ordering
+* abnormal behavior
+
+Why Kafka?
+Need:
+
+* stream processing
+* event history
+* large-scale event consumption
+
+---
+
+## PHASE 11 — EVENT SOURCING (ADVANCED)
+
+Rebuild:
+Customer order history
+
+ONLY from Kafka events.
+
+Learn:
+Kafka can become:
+
+* audit log
+* source of truth
+* event store
+
+RabbitMQ is not naturally suited for this.
+
+---
+
+## PHASE 12 — OBSERVABILITY
+
+Frontend dashboards:
+
+RabbitMQ dashboard:
+
+* queue depth
+* retry count
+* DLQ count
+* worker status
+
+Kafka dashboard:
+
+* consumer lag
+* partitions
+* offsets
+* throughput
+* replay status
+
+Critical learning:
+Operational concerns differ greatly.
+
+---
+
+## FRONTEND PAGES
+
+Customer App:
+
+* place order
+* realtime status
+
+Driver App:
+
+* accept delivery
+* send location stream
+
+Admin Dashboard:
+
+* live analytics
+* Kafka monitor
+* RabbitMQ monitor
+* replay tools
+* DLQ viewer
+* retry controls
+
+---
+
+## KEY COMPARISON TABLE
+
+USE RABBITMQ FOR:
+
+* email sending
+* payment retry
+* image processing
+* notifications
+* workflow execution
+* async background jobs
+* RPC-style async communication
+
+USE KAFKA FOR:
+
+* analytics
+* event history
+* realtime streaming
+* audit logs
+* recommendation systems
+* clickstream
+* location tracking
+* CDC
+* monitoring pipelines
+
+---
+
+## MOST IMPORTANT EXPERIMENTS
+
+1. Stop Kafka consumer
+   Observe lag buildup.
+
+2. Replay Kafka events
+   Rebuild analytics.
+
+3. Crash RabbitMQ worker
+   Observe retries + DLQ.
+
+4. Produce massive location events
+   See Kafka throughput advantages.
+
+5. Try replaying RabbitMQ tasks
+   Feel why it is awkward.
+
+6. Add new Kafka consumer later
+   Read historical events instantly.
+
+7. Scale Kafka consumers
+   Observe partition rebalance.
+
+---
+
+## BIGGEST LESSONS THIS PROJECT TEACHES
+
+RabbitMQ answers:
+"How do I reliably execute work?"
+
+Kafka answers:
+"How do I continuously stream business events?"
+
+RabbitMQ is operational.
+
+Kafka is informational.
+
+RabbitMQ moves tasks.
+
+Kafka stores business history in motion.
+
+---
+
+## FINAL MINDSET
+
+RabbitMQ:
+Task-oriented architecture.
+
+Kafka:
+Event-oriented architecture.
+
+Large systems usually need BOTH.

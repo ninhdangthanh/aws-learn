@@ -1,4 +1,4 @@
-.PHONY: help dev dev-be dev-fe build up down logs clean ngrok install-be install-fe
+.PHONY: help dev dev-be dev-fe build up down logs clean install-be install-fe
 
 # ── defaults ──────────────────────────────────────────────────────────────────
 BE_DIR  := ./backend
@@ -21,8 +21,10 @@ help:
 	@echo "  make up           docker compose up (detached)"
 	@echo "  make down         docker compose down"
 	@echo "  make logs         Follow docker compose logs"
-	@echo "  make ngrok        Expose frontend via ngrok (requires ngrok installed)"
 	@echo "  make clean        Remove build artifacts & docker volumes"
+	@echo ""
+	@echo "  Note: To test on mobile/other devices on the same WiFi,"
+	@echo "        use http://<your-local-ip>:5173"
 	@echo ""
 
 # ── install ───────────────────────────────────────────────────────────────────
@@ -73,19 +75,3 @@ clean:
 	rm -f $(BE_DIR)/server $(BE_DIR)/videocall.db
 	rm -rf $(FE_DIR)/dist $(FE_DIR)/node_modules
 
-# ── ngrok ─────────────────────────────────────────────────────────────────────
-# Exposes the running frontend.  Run `make dev` or `make up` first.
-# Set NGROK_AUTHTOKEN env var or authenticate once with `ngrok authtoken <token>`.
-ngrok:
-	@command -v ngrok >/dev/null 2>&1 || { \
-		echo "❌ ngrok not found. Install it from https://ngrok.com/download"; exit 1; }
-	@echo "🌐 Opening ngrok tunnel on port $(PORT_FE) ..."
-	@echo "   (Use 'make up' + port 3000 for the Docker setup)"
-	ngrok http $(PORT_FE)
-
-# For docker-compose frontend (port 3000)
-ngrok-docker:
-	@command -v ngrok >/dev/null 2>&1 || { \
-		echo "❌ ngrok not found. Install it from https://ngrok.com/download"; exit 1; }
-	@echo "🌐 Opening ngrok tunnel on port 3000 (Docker frontend)..."
-	ngrok http 3000

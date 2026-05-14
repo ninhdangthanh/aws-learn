@@ -37,22 +37,35 @@ make up
 # Backend  → http://localhost:8080
 ```
 
-## Public URL via ngrok
+## Testing on Local WiFi
 
-> Requires [ngrok](https://ngrok.com/download) installed and authenticated.
+To test video calls between two different devices (e.g., your laptop and your phone):
 
-```bash
-# After `make dev` (Vite on 5173):
-make ngrok
+1.  **Ensure both devices are on the same WiFi.**
+2.  **Find your local IP address**:
+    <details>
+    <summary><b>macOS</b></summary>
 
-# After `make up` (nginx on 3000):
-make ngrok-docker
-```
+    - **Terminal**: Run `ipconfig getifaddr en0` (or `en1` if on older MacBook/Ethernet).
+    - **GUI**: `System Settings` > `Network` > Select `Wi-Fi` > Click `Details...` > Look for `IP address`.
+    </details>
 
-ngrok will print a public HTTPS URL like `https://abc123.ngrok.io`.  
-Open it on any device — share with anyone to test cross-device calls.
+    <details>
+    <summary><b>Windows</b></summary>
 
----
+    - **CMD**: Run `ipconfig` and look for `IPv4 Address` under your active adapter.
+    - **GUI**: `Settings` > `Network & internet` > `Wi-Fi` > `Properties` > Look for `IPv4 address`.
+    </details>
+3.  **Start the app**:
+    ```bash
+    make dev
+    ```
+4.  **Access from other devices**:
+    *   On your phone/other device, open the browser and go to `http://<YOUR_IP>:5173`.
+    *   Example: `http://192.168.1.13:5173`
+
+> [!NOTE]
+> The app is configured to automatically detect the IP address from the URL, so it will connect to the backend running on your computer correctly.
 
 ## API
 

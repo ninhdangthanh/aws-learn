@@ -1,0 +1,541 @@
+# plan.txt
+
+# Kafka Learning Project
+
+Goal:
+
+* Understand Kafka deeply by building a real event-driven system
+* Compare Kafka mindset vs RabbitMQ mindset
+* Learn partitions, offsets, replay, consumer groups, retention, scaling, retries, DLQ, ordering
+* Build observable frontend + backend system to SEE how Kafka behaves
+
+---
+
+## PROJECT IDEA
+
+Project name:
+Realtime Commerce Event Platform
+
+Business story:
+Users place orders on an ecommerce system.
+
+Instead of directly calling services synchronously:
+
+* every action becomes an EVENT
+* events are streamed through Kafka
+* multiple services react independently
+
+This project is intentionally designed to expose:
+
+* event replay
+* offset tracking
+* consumer groups
+* partitioning
+* ordering
+* retention
+* retries
+* DLQ
+* scaling consumers
+* stream processing mindset
+
+---
+
+## HIGH LEVEL ARCHITECTURE
+
+Frontend (React / Next.js)
+|
+API Gateway / Order Service
+|
+Kafka
+|
+-
+
+|              |              |                |
+Inventory      Payment        Analytics        Notification
+Service        Service        Service          Service
+------------------------------------------------------
+
+```
+                 |
+          PostgreSQL / Redis
+```
+
+---
+
+## TECH STACK
+
+Backend:
+
+* Golang
+* KafkaJS
+* PostgreSQL
+* Redis
+* Docker 
+* Docker Compose
+
+Frontend:
+
+* React TypeScript
+* Tailwind
+* Socket.IO
+
+Infra:
+
+* Kafka
+* Zookeeper (if not using KRaft)
+* Kafka UI
+* Docker
+
+Recommended tools:
+
+* Kafka UI
+* Kafdrop
+* Offset Explorer
+
+---
+
+## PHASE 1 — BASIC EVENT FLOW
+
+Goal:
+Understand producer/consumer basics.
+
+Features:
+
+1. Create Order API
+2. Publish OrderCreated event
+3. Multiple services consume same event
+
+Flow:
+Frontend
+-> Order Service
+-> publish "order.created"
+
+Consumers:
+
+* Payment Service
+* Inventory Service
+* Analytics Service
+* Notification Service
+
+What to learn:
+
+* Kafka topic
+* Producer
+* Consumer
+* Consumer group
+* Event schema
+* Event-driven architecture
+
+Kafka concepts:
+
+* one event can be consumed by MANY services
+* event remains in Kafka
+* services are decoupled
+
+RabbitMQ comparison:
+RabbitMQ usually thinks:
+"deliver task"
+
+Kafka thinks:
+"publish event"
+
+---
+
+## PHASE 2 — CONSUMER GROUPS
+
+Goal:
+Understand scaling.
+
+Create:
+
+* analytics-consumer-1
+* analytics-consumer-2
+* analytics-consumer-3
+
+Topic:
+orders
+
+Partitions:
+3
+
+Experiment:
+
+* scale consumers up/down
+* observe rebalance
+
+What to learn:
+
+* partition assignment
+* rebalance
+* horizontal scaling
+* only one consumer per partition in same group
+
+IMPORTANT:
+Open Kafka UI and WATCH partition movement.
+
+RabbitMQ comparison:
+RabbitMQ scales queues differently.
+Kafka scales by partition.
+
+---
+
+## PHASE 3 — OFFSETS
+
+Goal:
+Understand Kafka core concept.
+
+Implement:
+Frontend page:
+
+* show current offsets
+* show lag
+* show processed events
+
+Experiments:
+
+1. Stop consumer
+2. Produce many events
+3. Restart consumer
+
+Observe:
+
+* consumer resumes from committed offset
+
+Next:
+
+* reset offset to beginning
+* replay ALL events
+
+What to learn:
+
+* committed offset
+* replay
+* lag
+* pull model
+
+MOST IMPORTANT LESSON:
+Kafka does NOT delete after consume.
+
+---
+
+## PHASE 4 — RETENTION + REPLAY
+
+Goal:
+Feel the difference vs RabbitMQ.
+
+Setup:
+retention.ms = 1 day
+
+Feature:
+Add button:
+"Replay all historical orders"
+
+Analytics service:
+
+* rebuild sales report entirely from Kafka
+
+What to learn:
+
+* event sourcing mindset
+* Kafka as source of truth
+* replaying history
+
+RabbitMQ comparison:
+This is hard in RabbitMQ.
+Kafka does it naturally.
+
+---
+
+## PHASE 5 — PARTITION + ORDERING
+
+Goal:
+Understand ordering guarantees.
+
+Topic:
+orders
+
+Partition strategy:
+key = user_id
+
+Experiments:
+
+* same user events stay ordered
+* different users go to different partitions
+
+Visualize:
+Frontend page:
+
+* partition distribution
+* event timeline
+
+What to learn:
+
+* ordering only guaranteed INSIDE partition
+* partition key importance
+
+Critical lesson:
+Bad partition key = bad system design.
+
+---
+
+## PHASE 6 — RETRY + DLQ
+
+Goal:
+Understand production-grade error handling.
+
+Create:
+
+* orders.retry.5s
+* orders.retry.30s
+* orders.dlq
+
+Simulate:
+Payment failures randomly.
+
+Flow:
+consume
+-> fail
+-> retry topic
+-> fail many times
+-> DLQ
+
+Frontend:
+DLQ dashboard
+
+What to learn:
+
+* Kafka retry pattern
+* exponential retry
+* dead letter queue
+* poison messages
+
+RabbitMQ comparison:
+RabbitMQ has stronger built-in retry tooling.
+Kafka retry usually requires explicit design.
+
+---
+
+## PHASE 7 — IDEMPOTENCY
+
+Goal:
+Understand duplicate event handling.
+
+Simulate:
+
+* consumer crash
+* message reprocessing
+
+Implement:
+idempotency table
+
+What to learn:
+
+* at least once delivery
+* duplicates
+* exactly once myth
+* idempotent consumers
+
+This is VERY important in real systems.
+
+---
+
+## PHASE 8 — STREAM PROCESSING
+
+Goal:
+Understand why Kafka is called streaming platform.
+
+Create:
+Realtime analytics service:
+
+* orders per minute
+* revenue per minute
+* top selling products
+
+Approach:
+consume stream continuously
+
+Frontend:
+live dashboard
+
+What to learn:
+
+* streaming computation
+* continuous aggregation
+* realtime pipelines
+
+RabbitMQ comparison:
+RabbitMQ can do it,
+but Kafka ecosystem is built for this.
+
+---
+
+## PHASE 9 — CDC (ADVANCED)
+
+Goal:
+Understand modern event architecture.
+
+Setup:
+Postgres + Debezium
+
+Flow:
+Postgres changes
+-> Kafka
+-> consumers react
+
+Example:
+INSERT order
+-> Kafka event automatically emitted
+
+What to learn:
+
+* CDC
+* event-driven database sync
+* data pipeline architecture
+
+This is heavily used in real companies.
+
+---
+
+## PHASE 10 — OBSERVABILITY
+
+Goal:
+Learn production debugging.
+
+Add:
+
+* tracing
+* logs
+* lag monitoring
+* retry metrics
+* partition metrics
+
+Dashboard:
+
+* consumer lag
+* retry count
+* DLQ count
+* throughput
+* processing time
+
+Tools:
+
+* Prometheus
+* Grafana
+
+What to learn:
+Kafka operations mindset.
+
+---
+
+## FRONTEND PAGES
+
+1. Order Page
+
+* create orders
+
+2. Kafka Monitor
+
+* topics
+* partitions
+* offsets
+* lag
+
+3. Replay Dashboard
+
+* replay events
+* reset offset
+
+4. Analytics Dashboard
+
+* realtime metrics
+
+5. DLQ Dashboard
+
+* failed events
+* retry events
+
+6. Consumer Group Viewer
+
+* active consumers
+* partition ownership
+
+7. Partition Visualizer
+
+* show event distribution
+
+---
+
+## MOST IMPORTANT THINGS TO EXPERIENCE
+
+1. Replay
+   Reset offset and replay all events.
+
+2. Consumer lag
+   Stop consumer and see lag increase.
+
+3. Rebalance
+   Kill consumer instance and observe reassignment.
+
+4. Ordering
+   See ordering break across partitions.
+
+5. Duplicate processing
+   Crash consumer before commit.
+
+6. Retention
+   Watch old segments disappear.
+
+---
+
+## OPTIONAL ADVANCED FEATURES
+
+* Schema Registry
+* Avro serialization
+* Kafka Streams
+* Outbox Pattern
+* SAGA orchestration
+* Multi-region replication
+* Event versioning
+
+---
+
+## WHAT YOU WILL UNDERSTAND AFTER THIS PROJECT
+
+You will deeply understand:
+
+* why Kafka is NOT just a queue
+* why offsets are powerful
+* why replay changes architecture
+* why partitions matter
+* why event-driven systems are different
+* why Kafka scales extremely well
+* why Kafka operations are harder
+* why RabbitMQ is better for some workloads
+* why Kafka became central in modern data architecture
+
+---
+
+## RECOMMENDED DEVELOPMENT ORDER
+
+1. Single topic
+2. Single producer
+3. Single consumer
+4. Multiple consumers
+5. Consumer groups
+6. Partitions
+7. Offset management
+8. Retry/DLQ
+9. Replay
+10. Realtime analytics
+11. CDC
+12. Observability
+
+---
+
+## FINAL LESSON
+
+RabbitMQ teaches:
+"How to deliver work"
+
+Kafka teaches:
+"How to model business events over time"
