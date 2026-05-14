@@ -13,30 +13,48 @@ import (
 type PaymentService struct {
 	consumer   *kafka.Consumer
 	instanceID string
+	groupID    string
 }
 
 func NewPaymentService(brokers []string, instanceID string) *PaymentService {
-	consumer := kafka.NewConsumer(brokers, "orders", "payment-service", 0)
+	groupID := "payment-service"
+	consumer := kafka.NewConsumer(brokers, "orders", groupID, 0)
+
+	// Register with the consumer registry
+	kafka.GetRegistry().Register(groupID, instanceID)
+
 	return &PaymentService{
 		consumer:   consumer,
 		instanceID: instanceID,
+		groupID:    groupID,
 	}
 }
 
 func (ps *PaymentService) Start(ctx context.Context) {
 	log.Printf("[PAYMENT SERVICE - %s] started listening to 'orders' topic", ps.instanceID)
 
+	defer func() {
+		ps.consumer.Close()
+		kafka.GetRegistry().Unregister(ps.groupID, ps.instanceID)
+		log.Printf("[PAYMENT SERVICE - %s] stopped", ps.instanceID)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
-			ps.consumer.Close()
 			return
 		default:
 			msg, err := ps.consumer.ReadMessage(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				log.Printf("[PAYMENT SERVICE - %s] Error reading message: %v", ps.instanceID, err)
 				continue
 			}
+
+			// Track partition assignment and message processing
+			kafka.GetRegistry().RecordMessage(ps.groupID, ps.instanceID, msg.Partition)
 
 			var event models.Event
 			if err := json.Unmarshal(msg.Value, &event); err != nil {

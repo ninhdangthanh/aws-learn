@@ -68,26 +68,33 @@ http://localhost:8080      # Kafka UI
 
 ---
 
-## 📋 Phase 2: Consumer Groups - PLANNED
+## ✅ Phase 2: Consumer Groups - COMPLETE
 
 ### Objectives
 - Scale consumer services horizontally
 - Observe partition rebalancing
 - Understand consumer group coordination
 
-### What Needs to be Done
+### What Was Done
 
 1. **Backend Changes:**
-   - [ ] Modify services to support multiple instances
-   - [ ] Add instance ID tracking
-   - [ ] Update main.go to launch multiple instances (e.g., 3 payment services)
-   - [ ] Modify topic creation to use 3 partitions
+   - [x] Modify services to support multiple instances (3 instances per service by default)
+   - [x] Add instance ID tracking via `kafka/consumer_registry.go` (thread-safe global registry)
+   - [x] Update main.go to launch multiple instances (configurable via `CONSUMER_INSTANCES` env var)
+   - [x] Modify topic creation to use 3 partitions (configurable via `KAFKA_PARTITIONS` env var)
+   - [x] Added CORS middleware to main.go
+   - [x] New API: `GET /api/consumer-groups` — real-time consumer group status
+   - [x] New API: `GET /api/rebalance-events` — partition rebalance event timeline
+   - [x] All 4 services register/unregister with registry and track partition assignments
 
 2. **Frontend Changes:**
-   - [ ] Add consumer instance list
-   - [ ] Show partition assignments
-   - [ ] Display rebalancing events
-   - [ ] Add consumer state UI
+   - [x] New "Consumer Groups" page with full dashboard
+   - [x] Summary cards (groups, instances, partitions, messages processed)
+   - [x] Color-coded partition distribution visualization
+   - [x] Expandable consumer group cards with instance details
+   - [x] Rebalance event timeline with event type icons
+   - [x] Auto-refresh with live/paused toggle
+   - [x] Updated KafkaMonitor to show real data from API
 
 3. **Testing:**
    - [ ] Verify load balancing across instances
@@ -346,19 +353,21 @@ http://localhost:8080      # Kafka UI
 ## 🎯 Current Status Summary
 
 - **Phase 1:** ✅ COMPLETE and TESTED
-- **Phase 2-10:** 📝 DESIGNED (see DEVELOPMENT_GUIDE.md)
+- **Phase 2:** ✅ COMPLETE (Consumer Groups with multiple instances, partition tracking, rebalance events)
+- **Phase 3-10:** 📝 DESIGNED (see DEVELOPMENT_GUIDE.md)
 
 ## 🚀 Next Steps
 
-1. **Test Phase 1:**
+1. **Test Phase 2:**
    ```bash
-   ./quick-start.sh
-   # Then follow QUICKSTART.md
+   docker-compose up -d
+   cd backend && CONSUMER_INSTANCES=3 KAFKA_PARTITIONS=3 go run main.go
+   cd frontend && npm run dev
    ```
 
-2. **Create many test orders** and observe the system
+2. **Create many test orders** and watch partition distribution in the Consumer Groups tab
 
-3. **Implement Phase 2** (see DEVELOPMENT_GUIDE.md for detailed instructions)
+3. **Implement Phase 3** (Offsets & Lag - see DEVELOPMENT_GUIDE.md)
 
 4. **Continue through phases** incrementally
 
@@ -407,5 +416,5 @@ For implementing new phases:
 
 ---
 
-**Last Updated:** Phase 1 Complete
-**Next Milestone:** Phase 2 Consumer Groups
+**Last Updated:** Phase 2 Complete
+**Next Milestone:** Phase 3 Offsets & Lag

@@ -12,30 +12,48 @@ import (
 type NotificationService struct {
 	consumer   *kafka.Consumer
 	instanceID string
+	groupID    string
 }
 
 func NewNotificationService(brokers []string, instanceID string) *NotificationService {
-	consumer := kafka.NewConsumer(brokers, "orders", "notification-service", 0)
+	groupID := "notification-service"
+	consumer := kafka.NewConsumer(brokers, "orders", groupID, 0)
+
+	// Register with the consumer registry
+	kafka.GetRegistry().Register(groupID, instanceID)
+
 	return &NotificationService{
 		consumer:   consumer,
 		instanceID: instanceID,
+		groupID:    groupID,
 	}
 }
 
 func (ns *NotificationService) Start(ctx context.Context) {
 	log.Printf("[NOTIFICATION SERVICE - %s] started listening to 'orders' topic", ns.instanceID)
 
+	defer func() {
+		ns.consumer.Close()
+		kafka.GetRegistry().Unregister(ns.groupID, ns.instanceID)
+		log.Printf("[NOTIFICATION SERVICE - %s] stopped", ns.instanceID)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
-			ns.consumer.Close()
 			return
 		default:
 			msg, err := ns.consumer.ReadMessage(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				log.Printf("[NOTIFICATION SERVICE - %s] Error reading message: %v", ns.instanceID, err)
 				continue
 			}
+
+			// Track partition assignment and message processing
+			kafka.GetRegistry().RecordMessage(ns.groupID, ns.instanceID, msg.Partition)
 
 			var event models.Event
 			if err := json.Unmarshal(msg.Value, &event); err != nil {

@@ -20,6 +20,22 @@ import (
 	"github.com/kafka-commerce/backend/service"
 )
 
+// corsMiddleware adds CORS headers for frontend communication
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	// Load environment variables
 	godotenv.Load()
@@ -56,6 +72,8 @@ func main() {
 
 	// Setup API server
 	router := mux.NewRouter()
+	router.Use(corsMiddleware)
+
 	orderAPI := api.NewOrderAPI(db, producer)
 	orderAPI.RegisterRoutes(router)
 
@@ -71,7 +89,7 @@ func main() {
 	})
 
 	// Get number of consumer instances from environment (Phase 2 feature)
-	numInstances := 1
+	numInstances := 3
 	if instStr := os.Getenv("CONSUMER_INSTANCES"); instStr != "" {
 		if n, err := strconv.Atoi(instStr); err == nil && n > 0 {
 			numInstances = n
@@ -79,6 +97,7 @@ func main() {
 	}
 
 	log.Printf("Starting %d consumer instances per service (Phase 2 - Consumer Groups)", numInstances)
+	log.Printf("Using %d partitions for 'orders' topic", numPartitions)
 
 	// Start consumer services in separate goroutines
 	// Each service can have multiple instances for horizontal scaling
