@@ -2,7 +2,6 @@ import { useState } from 'react'
 import OrderPage from './pages/OrderPage'
 import KafkaMonitor from './pages/KafkaMonitor'
 import ConsumerGroups from './pages/ConsumerGroups'
-import './App.css'
 
 const TABS = [
   { key: 'orders', label: 'Create Order', icon: '🛒' },
