@@ -4,6 +4,8 @@
 >
 > Upload PDF documents → Ask questions in natural language → Get accurate answers with citations.
 
+#### next project: (ETL-AI-insight-service)
+
 ---
 
 ## What Is This?
