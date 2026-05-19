@@ -193,6 +193,24 @@ http://localhost:8080      # Kafka UI
 
 ---
 
+## 📋 Phase 5.5: Schema Evolution - PLANNED
+
+### Objectives
+- Handle evolving event contracts
+- Maintain backward compatibility
+- Introduce event versioning
+
+### What Needs to be Done
+
+1. **Backend Changes:**
+   - [ ] Add schema version field
+   - [ ] Introduce `order.created.v2`
+   - [ ] Handle old/new consumers
+   - [ ] Add schema validation
+   - [ ] Explore Schema Registry concepts
+
+---
+
 ## 📋 Phase 6: Retry & DLQ - PLANNED
 
 ### Objectives
@@ -227,37 +245,169 @@ http://localhost:8080      # Kafka UI
 
 ---
 
-## 📋 Phase 7: Idempotency - PLANNED
+## 📋 Phase 6.5: API Idempotency - PLANNED
 
 ### Objectives
-- Handle duplicate message processing
-- Implement idempotency keys
-- Prevent double-processing
+- Prevent duplicate order creation
+- Handle frontend retries safely
+- Support network retry resilience
+- Guarantee "same request = same result"
+
+### What Needs to be Done
+
+1. **Frontend Changes:**
+   - [ ] Generate Idempotency-Key using UUID
+   - [ ] Attach key to every `POST /api/orders`
+   - [ ] Disable submit button during pending request
+   - [ ] Retry safely on timeout/network failure
+
+2. **Database Changes:**
+   - [ ] Create new table:
+     ```sql
+     CREATE TABLE api_idempotency (
+         key VARCHAR PRIMARY KEY,
+         request_hash TEXT NOT NULL,
+         response JSONB NOT NULL,
+         status_code INT NOT NULL,
+         created_at TIMESTAMP DEFAULT NOW()
+     );
+     ```
+
+3. **Backend Changes:**
+   - [ ] Check idempotency key before processing
+   - [ ] Return cached response if duplicate
+   - [ ] Store successful responses
+   - [ ] Validate request payload hash
+   - [ ] Add TTL cleanup job
+
+4. **Edge Cases to Handle:**
+   - [ ] Same key with different payload -> reject request
+   - [ ] Expired keys
+   - [ ] Concurrent duplicate requests
+   - [ ] Backend crash during processing
+
+5. **Testing:**
+   - [ ] Double-click submit button
+   - [ ] Retry after timeout
+   - [ ] Simulate frontend reconnect
+   - [ ] Verify only ONE order created
+
+---
+
+## 📋 Phase 7: Consumer Idempotency - PLANNED
+
+### Objectives
+- Handle Kafka duplicate delivery (prevent double-processing of events)
+- Ensure at-least-once processing safety
+- Implement idempotency checks using event/message IDs
+- Support consumer crash recovery without side effects
 
 ### What Needs to be Done
 
 1. **Database Changes:**
-   - [ ] Idempotency table already created ✅
-   - [ ] Add query functions
+   - [ ] Create dedicated table:
+     ```sql
+     CREATE TABLE processed_events (
+         event_id VARCHAR PRIMARY KEY,
+         consumer_group VARCHAR NOT NULL,
+         processed_at TIMESTAMP DEFAULT NOW()
+     );
+     ```
 
 2. **Backend Changes:**
-   - [ ] Check idempotency before processing
-   - [ ] Cache processing results
-   - [ ] Return cached result on duplicate
+   - [ ] Check `processed_events` before processing
+   - [ ] Skip already processed events
+   - [ ] Commit offset ONLY after successful processing
+   - [ ] Add transactional processing wrapper
+   - [ ] Add consumer processing metrics
 
-3. **Testing:**
-   - [ ] Simulate consumer crash
-   - [ ] Verify idempotent processing
-   - [ ] Confirm no double-processing
+3. **Failure & Edge Case Handling:**
+   - [ ] Simulate consumer crash before offset commit
+   - [ ] Simulate consumer crash after DB write
+   - [ ] Verify replay safety and correctness
+
+4. **Testing:**
+   - [ ] Force Kafka redelivery
+   - [ ] Restart consumer mid-processing
+   - [ ] Verify no duplicate side effects
+   - [ ] Validate offset correctness
 
 ---
 
-## 📋 Phase 8: Stream Processing - PLANNED
+## 📋 Phase 7.5: Outbox Pattern - PLANNED
+
+### Objectives
+- Solve dual-write problem
+- Guarantee DB + Kafka consistency
+- Ensure reliable event publishing
+
+### Problem Being Solved
+
+**Current Flow:**
+1. `INSERT` order
+2. Publish Kafka event
+
+**Failure Case:**
+- DB write succeeds, but Kafka publish fails (or vice versa) -> Inconsistent system state.
+
+### New Architecture
+
+**DB Transaction:**
+- `INSERT` order
+- `INSERT` outbox_event
+- `COMMIT`
+
+**Outbox Worker:**
+- Poll outbox table
+- Publish to Kafka
+- Mark event as sent
+
+### What Needs to be Done
+
+1. **Database Changes:**
+   - [ ] Create outbox table:
+     ```sql
+     CREATE TABLE outbox_events (
+         id UUID PRIMARY KEY,
+         aggregate_type VARCHAR,
+         aggregate_id VARCHAR,
+         event_type VARCHAR,
+         payload JSONB,
+         status VARCHAR DEFAULT 'pending',
+         created_at TIMESTAMP DEFAULT NOW(),
+         sent_at TIMESTAMP
+     );
+     ```
+
+2. **Backend Changes:**
+   - [ ] Remove direct Kafka publishing from request handler
+   - [ ] Add transactional order + outbox insert
+   - [ ] Create outbox publisher worker
+   - [ ] Add retry mechanism
+   - [ ] Add batch publishing support
+
+3. **Frontend Changes:**
+   - [ ] Display outbox queue status
+   - [ ] Show pending vs sent events
+
+4. **Testing:**
+   - [ ] Simulate Kafka outage
+   - [ ] Verify no event loss
+   - [ ] Restart publisher worker
+   - [ ] Verify eventual consistency
+
+---
+
+## 📋 Phase 8: Stateful Stream Processing - PLANNED
 
 ### Objectives
 - Real-time aggregation
 - Continuous analytics
 - Live dashboards
+- Implement tumbling windows
+- Implement hopping windows
+- Understand event-time vs processing-time
+- Handle late arrival of events
 
 ### What Needs to be Done
 
@@ -316,7 +466,7 @@ http://localhost:8080      # Kafka UI
 
 ---
 
-## 📋 Phase 10: Observability - PLANNED (ADVANCED)
+## 📋 Phase 10: Observability & Tracing - PLANNED (ADVANCED)
 
 ### Objectives
 - Production-grade monitoring
