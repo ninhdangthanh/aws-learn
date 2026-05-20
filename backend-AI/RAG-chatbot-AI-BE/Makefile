@@ -29,3 +29,20 @@ docker-down:
 
 test:
 	go test ./...
+
+
+# Frontend helpers
+.PHONY: run-frontend dev
+
+run-frontend:
+	@echo "Starting frontend (will install deps if needed)"
+	cd frontend && npm install && npm run dev
+
+# Run API in background and frontend in foreground (simple dev helper)
+dev: 
+	@echo "Running API in background and frontend in foreground"
+	# start api in background
+	(go run ./cmd/api) &
+	# give API a moment to start
+	sleep 1
+	cd frontend && npm install && npm run dev

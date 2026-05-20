@@ -13,3 +13,9 @@ export async function chatRequest(body) {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+export async function getDocuments() {
+  const res = await fetch(`${API_BASE}/api/v1/documents`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}

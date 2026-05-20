@@ -1,5 +1,5 @@
-import React, {useState} from 'react'
-import { uploadDocument, chatRequest } from './api'
+import React, {useState, useEffect} from 'react'
+import { uploadDocument, chatRequest, getDocuments } from './api'
 
 export default function App() {
   const [file, setFile] = useState(null)
@@ -14,10 +14,30 @@ export default function App() {
     try {
       const res = await uploadDocument(file)
       setUploadStatus('Uploaded: ' + (res?.id || 'ok'))
+      // refresh list after upload
+      fetchDocs()
     } catch (err) {
       setUploadStatus('Upload failed: ' + err.message)
     }
   }
+
+  const [docs, setDocs] = useState([])
+
+  async function fetchDocs() {
+    try {
+      const res = await getDocuments()
+      // API returns { data: [...], pagination... } or an array; normalize
+      if (Array.isArray(res)) setDocs(res)
+      else if (res && res.data) setDocs(res.data)
+      else setDocs([])
+    } catch (err) {
+      console.error('fetchDocs', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchDocs()
+  }, [])
 
   async function handleChat(e) {
     e.preventDefault()
@@ -51,6 +71,29 @@ export default function App() {
           <button type="submit">Send</button>
         </form>
         <pre className="answer">{answer}</pre>
+      </section>
+
+      <section>
+        <h2>Documents</h2>
+        <button onClick={fetchDocs}>Refresh</button>
+        <table style={{width:'100%', marginTop:8, borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{textAlign:'left'}}>
+              <th>Filename</th>
+              <th>Status</th>
+              <th>Chunks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map(d => (
+              <tr key={d.id} style={{borderTop:'1px solid #eee'}}>
+                <td>{d.filename}</td>
+                <td>{d.status}</td>
+                <td>{d.chunk_count || d.chunkCount || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
     </div>
   )

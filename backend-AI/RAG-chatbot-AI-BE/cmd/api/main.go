@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
@@ -48,6 +49,7 @@ func main() {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(cors.Default())
 
 	h := handler.NewHandler(documentService, retrievalService, chatService, cfg)
 	router.POST("/api/v1/documents", h.UploadDocument)
