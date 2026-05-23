@@ -296,6 +296,38 @@ Hiểu rõ bản chất để tích hợp an toàn các dịch vụ đăng nhậ
 
 ---
 
+## 7. Bảo mật cho Golang API
+Khi xây dựng API bằng Golang, cần kết hợp các lớp bảo mật tại cả tầng HTTP, ứng dụng và runtime.
+
+*   **Xác thực và phân quyền:**
+    *   Sử dụng `JWT` hoặc `OAuth2` kết hợp middleware để kiểm tra chữ ký token và claims trước khi xử lý request.
+    *   Áp dụng `RBAC` hoặc `ABAC` ở tầng middleware để đảm bảo chỉ những client hợp lệ mới truy cập được endpoint nhạy cảm.
+*   **Hardening HTTP server:**
+    *   Bật `TLS` với cấu hình mạnh (TLS 1.2+ hoặc TLS 1.3) và vô hiệu hóa cipher yếu.
+    *   Thiết lập `HTTP security headers` như `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy` và `Referrer-Policy`.
+    *   Hạn chế `Server` header với `net/http` để tránh rò rỉ thông tin phiên bản.
+*   **Input validation & data sanitization:**
+    *   Sử dụng schema validation (ví dụ `go-playground/validator`, `ozzo-validation`) để kiểm tra dữ liệu request.
+    *   Luôn xác thực dữ liệu đầu vào ngay tại ranh giới API, không tin tưởng bất kỳ dữ liệu nào từ client.
+*   **Rate limiting và chống DDoS:**
+    *   Đặt giới hạn request theo IP hoặc theo API key với các thư viện như `golang.org/x/time/rate`, `ulule/limiter`, hoặc middleware reverse proxy.
+    *   Kết hợp `burst control`, `sliding window` và `circuit breaker` để bảo vệ dịch vụ khỏi lưu lượng bất thường.
+*   **Bảo vệ chống replay và CSRF:**
+    *   Đối với API thuần JSON và token-based auth, dùng `anti-replay nonce` hoặc `jti` trong JWT.
+    *   Với cookie-based auth, vẫn cần CSRF token và `SameSite` cookie để chặn request giả mạo.
+*   **Quản lý secrets và cấu hình:**
+    *   Không hardcode bí mật vào mã nguồn. Sử dụng `Vault`, AWS Secrets Manager, hoặc biến môi trường kết hợp `config` package.
+    *   Mã hóa secrets khi cần lưu trữ trên disk và áp dụng chính sách truy cập tối thiểu.
+*   **Logging và giám sát bảo mật:**
+    *   Ghi log yêu cầu quan trọng, lỗi xác thực và truy cập thất bại.
+    *   Không ghi nhạy cảm như mật khẩu, token, số thẻ tín dụng.
+    *   Kết nối với hệ thống SIEM / log aggregator để phát hiện hành vi bất thường.
+*   **An toàn runtime và dependency:**
+    *   Cập nhật phiên bản Golang định kỳ để nhận bản vá bảo mật.
+    *   Quét dependency bằng `go list -u -m all` và `gosec`, `govulncheck` để phát hiện lỗ hổng.
+
+---
+
 # PHẦN 4: BẢO MẬT ỨNG DỤNG & MẬT MÃ HỌC (APPLICATION SECURITY & CRYPTOGRAPHY)
 
 ## 1. CSRF vs. XSS: Cơ chế & Phòng ngừa
