@@ -352,6 +352,7 @@ make lint           # Run linter
 
 - [PROJECT_PLAN.md](./PROJECT_PLAN.md) — Detailed implementation plan with architecture diagrams
 - [MIDLEVEL_PLAN.md](./MIDLEVEL_PLAN.md) — Mid-level enhancements (evaluation, cost tracking, observability)
+- [docs/faq_ai_backend.md](./docs/faq_ai_backend.md) — Hỏi đáp (FAQ) & Tư duy cốt lõi cho AI Backend Developer
 
 ---
 
