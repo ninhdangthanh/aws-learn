@@ -18,12 +18,12 @@ const (
 type TaskHandler struct {
 	db        *repository.Postgres
 	qdrant    *repository.Qdrant
-	embedding *service.EmbeddingService
+	embedding service.EmbeddingProvider
 	ingestion *service.IngestionService
 	cfg       *config.Config
 }
 
-func NewTaskHandler(db *repository.Postgres, qdrant *repository.Qdrant, embedding *service.EmbeddingService, ingestion *service.IngestionService, cfg *config.Config) *TaskHandler {
+func NewTaskHandler(db *repository.Postgres, qdrant *repository.Qdrant, embedding service.EmbeddingProvider, ingestion *service.IngestionService, cfg *config.Config) *TaskHandler {
 	return &TaskHandler{db: db, qdrant: qdrant, embedding: embedding, ingestion: ingestion, cfg: cfg}
 }
 

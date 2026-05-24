@@ -10,12 +10,13 @@ import (
 )
 
 type RetrievalService struct {
-	qdrant *repository.Qdrant
-	cfg    *config.Config
+	qdrant    *repository.Qdrant
+	embedding EmbeddingProvider
+	cfg       *config.Config
 }
 
-func NewRetrievalService(qdrant *repository.Qdrant, cfg *config.Config) *RetrievalService {
-	return &RetrievalService{qdrant: qdrant, cfg: cfg}
+func NewRetrievalService(qdrant *repository.Qdrant, embedding EmbeddingProvider, cfg *config.Config) *RetrievalService {
+	return &RetrievalService{qdrant: qdrant, embedding: embedding, cfg: cfg}
 }
 
 func (s *RetrievalService) Search(ctx context.Context, query string, topK int, scoreThreshold float64) ([]model.SearchResult, error) {
@@ -26,7 +27,7 @@ func (s *RetrievalService) Search(ctx context.Context, query string, topK int, s
 		scoreThreshold = 0.0
 	}
 
-	embeddings, err := NewEmbeddingService(s.cfg).EmbedText(ctx, []string{query})
+	embeddings, err := s.embedding.EmbedText(ctx, []string{query})
 	if err != nil {
 		return nil, err
 	}

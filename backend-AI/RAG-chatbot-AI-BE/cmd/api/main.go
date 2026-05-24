@@ -44,8 +44,8 @@ func main() {
 	documentService := service.NewDocumentService(db, qdrantRepo, asynqClient, cfg)
 	ingestService := service.NewIngestionService(db, qdrantRepo, cfg)
 	embedService := service.NewEmbeddingService(cfg)
-	retrievalService := service.NewRetrievalService(qdrantRepo, cfg)
-	chatService := service.NewChatService(db, ingestService, retrievalService, embedService, cfg)
+	retrievalService := service.NewRetrievalService(qdrantRepo, embedService, cfg)
+	chatService := service.NewChatService(db, ingestService, retrievalService, embedService, embedService, cfg)
 
 	router := gin.New()
 	router.Use(gin.Recovery())

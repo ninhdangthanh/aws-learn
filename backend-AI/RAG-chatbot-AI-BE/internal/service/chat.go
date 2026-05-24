@@ -17,12 +17,13 @@ type ChatService struct {
 	db        *repository.Postgres
 	ingestion *IngestionService
 	retrieval *RetrievalService
-	embedding *EmbeddingService
+	embedding EmbeddingProvider
+	llm       LLMProvider
 	cfg       *config.Config
 }
 
-func NewChatService(db *repository.Postgres, ingestion *IngestionService, retrieval *RetrievalService, embedding *EmbeddingService, cfg *config.Config) *ChatService {
-	return &ChatService{db: db, ingestion: ingestion, retrieval: retrieval, embedding: embedding, cfg: cfg}
+func NewChatService(db *repository.Postgres, ingestion *IngestionService, retrieval *RetrievalService, embedding EmbeddingProvider, llm LLMProvider, cfg *config.Config) *ChatService {
+	return &ChatService{db: db, ingestion: ingestion, retrieval: retrieval, embedding: embedding, llm: llm, cfg: cfg}
 }
 
 func (s *ChatService) Chat(ctx context.Context, req model.ChatRequest) (*model.ChatResponse, error) {
@@ -44,7 +45,7 @@ func (s *ChatService) Chat(ctx context.Context, req model.ChatRequest) (*model.C
 
 	promptText := prompt.BuildPrompt(strings.Join(contextParts, "\n\n"), req.Question)
 	start := time.Now()
-	answer, err := s.embedding.GenerateAnswer(ctx, promptText)
+	answer, err := s.llm.GenerateAnswer(ctx, promptText)
 	if err != nil {
 		return nil, err
 	}
