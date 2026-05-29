@@ -557,3 +557,61 @@ Một số nhóm ngành đặc thù như **Ngân hàng (Banking), Tập đoàn q
     *   **Nộp đơn trực tiếp (Direct Portal):** Thường xuyên theo dõi và nộp hồ sơ qua trang tuyển dụng chính thức (Careers page) của từng ngân hàng/tập đoàn.
     *   **Sử dụng Headhunters:** Kết nối sâu với các Headhunter chuyên trách phân khúc tài chính/ngân hàng/chính phủ.
     *   **Mạng lưới giới thiệu (Employee Referral):** Xây dựng mối quan hệ chuyên môn với các kỹ sư đang làm việc tại các đơn vị này để nhận được sự giới thiệu nội bộ trực tiếp.
+
+Bảo mật API
+
+API gateway của aws có thể làm được các việc xác thực bearer token hay set rate limit cho tier người dùng bằng cách integrate service không?
+
+Làm 1 project dùng Langhchain hoặc FW nào support Golang
+
+---
+
+## 8. AWS API Gateway: Cơ chế xác thực và Rate Limiting
+AWS API Gateway là dịch vụ quản lý API đầy đủ tính năng, hoạt động như một "cửa ngõ" trung tâm cho các ứng dụng client để truy cập vào các dịch vụ backend.
+
+*   **Xác thực (Authentication):** API Gateway hỗ trợ nhiều cơ chế xác thực mạnh mẽ:
+    *   **IAM Roles/Users:** Tích hợp với AWS Identity and Access Management (IAM) để kiểm soát truy cập dựa trên vai trò của người dùng AWS.
+    *   **Custom Authorizers (Lambda Authorizers):** Cho phép bạn viết một hàm AWS Lambda tùy chỉnh để thực hiện logic xác thực phức tạp (ví dụ: kiểm tra JWT bearer token, xác thực từ cơ sở dữ liệu bên ngoài, hoặc tích hợp với các hệ thống SSO). Lambda Authorizer sẽ trả về chính sách IAM để cấp quyền cho API request.
+    *   **Cognito User Pools:** Tích hợp trực tiếp với Amazon Cognito User Pools để quản lý người dùng và cấp phát JWT. API Gateway sẽ tự động xác thực JWT do Cognito cấp trước khi chuyển tiếp yêu cầu đến backend.
+*   **Phân quyền (Authorization):** Sau khi xác thực, API Gateway sử dụng các chính sách (policies) để quyết định liệu người dùng đã được xác thực có quyền truy cập vào tài nguyên API cụ thể hay không.
+*   **Rate Limiting (Giới hạn tỷ lệ):** API Gateway cung cấp tính năng "Usage Plans" để bạn có thể:
+    *   Đặt giới hạn lưu lượng truy cập (throttling) cho từng giai đoạn (stage) của API hoặc cho từng API key cụ thể (áp dụng cho từng tier người dùng).
+    *   Thiết lập giới hạn số lượng yêu cầu mỗi giây (Rate) và số lượng yêu cầu tối đa có thể vượt quá giới hạn trong một thời gian ngắn (Burst).
+    *   Quản lý API Keys để phân biệt các khách hàng và áp dụng các Usage Plans khác nhau cho họ, từ đó tạo ra các gói dịch vụ (ví dụ: Basic, Premium).
+
+---
+
+## 9. Phát triển dự án với LangChain/Golang
+LangChain là một framework mạnh mẽ để xây dựng các ứng dụng dựa trên Large Language Models (LLMs). Mặc dù LangChain ban đầu phổ biến trong Python, nhưng hiện có các phiên bản và thư viện cộng đồng hỗ trợ Go (ví dụ: `tmc/langchaingo` trên GitHub).
+
+**Đề xuất dự án:** Xây dựng một **Hệ thống tóm tắt tài liệu tự động (Automated Document Summarization System)** sử dụng Golang và tích hợp với LangChain Go.
+
+*   **Mục tiêu:**
+    *   Người dùng tải lên các tài liệu (PDF, TXT, DOCX).
+    *   Hệ thống sử dụng LLM để tóm tắt nội dung chính của tài liệu.
+    *   Lưu trữ bản tóm tắt và cho phép người dùng tìm kiếm, truy vấn các tài liệu đã tóm tắt.
+*   **Các thành phần kiến trúc:**
+    *   **Frontend (Optional):** Giao diện web đơn giản để tải lên tài liệu và xem kết quả.
+    *   **Backend (Golang):**
+        *   **API Gateway:** Nhận yêu cầu tải lên tài liệu.
+        *   **Storage (AWS S3):** Lưu trữ tài liệu gốc và bản tóm tắt.
+        *   **Message Queue (RabbitMQ/Kafka):** Xử lý bất đồng bộ các yêu cầu tóm tắt tài liệu dài.
+        *   **LangChain Go Service:**
+            *   Tích hợp với các LLM provider (ví dụ: OpenAI, Google Gemini).
+            *   Sử dụng các thành phần của LangChain như `Document Loaders` để đọc tài liệu, `Text Splitters` để chia nhỏ tài liệu lớn, `Chains` để xử lý và tóm tắt.
+            *   Có thể dùng `Vector Stores` (ví dụ: `pgvector` với PostgreSQL) để lưu trữ embeddings của tài liệu, phục vụ cho chức năng tìm kiếm ngữ nghĩa hoặc RAG (Retrieval-Augmented Generation) nếu muốn mở rộng.
+        *   **Database (PostgreSQL):** Lưu trữ metadata tài liệu, trạng thái tóm tắt, và các bản tóm tắt cuối cùng.
+*   **Các bước triển khai chính:**
+    1.  **Khởi tạo dự án Golang:** Dùng `gin-gonic/gin` cho framework web.
+    2.  **Tích hợp LangChain Go:** Tìm kiếm thư viện LangChain Go phù hợp và học cách sử dụng các `LLM Chains` cơ bản.
+    3.  **Xử lý File Upload:** Xây dựng API để nhận file, lưu vào S3.
+    4.  **Hàng đợi & Worker:** Triển khai một Worker Golang tiêu thụ từ Message Queue để xử lý tóm tắt.
+    5.  **Tích hợp LLM:** Gọi API của LLM để tóm tắt, xử lý các giới hạn token của LLM.
+    6.  **Lưu trữ kết quả:** Ghi bản tóm tắt vào database và S3.
+    7.  **API Retrieval:** Xây dựng API để lấy về bản tóm tắt và tìm kiếm.
+    8.  **Triển khai AWS:** Sử dụng AWS Lambda hoặc ECS Fargate để deploy các service Golang.
+*   **Mở rộng (Advanced):**
+    *   Triển khai RAG để cải thiện chất lượng tóm tắt bằng cách tìm kiếm ngữ cảnh liên quan từ cơ sở dữ liệu tài liệu.
+    *   Thêm chức năng hỏi đáp trên tài liệu đã tóm tắt.
+    *   Hỗ trợ đa ngôn ngữ.
+    *   Tích hợp bộ kiểm tra chất lượng tóm tắt tự động.
