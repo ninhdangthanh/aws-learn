@@ -140,6 +140,33 @@ Apache Kafka là một nền tảng truyền phát sự kiện phân tán (Distr
 2.  **Zero-Copy Technology:** Sử dụng lệnh hệ thống `sendfile` (trên Linux) để truyền dữ liệu trực tiếp từ OS Page Cache sang Network Socket mà không cần copy dữ liệu qua không gian người dùng (User-space memory), giảm thiểu tối đa CPU usage.
 3.  **Batching & Compression (Gom cụm & Nén):** Gom cụm nhiều tin nhắn thành một lô (batch) để gửi và nén dữ liệu giúp tiết kiệm tối đa băng thông mạng và I/O đĩa.
 
+## 8. Tóm tắt: Latency và Throughput trong hệ thống
+
+**Latency** là thời gian hoàn thành một request/task (ví dụ: 50ms cho một API call).
+**Throughput** là số lượng request hệ thống xử lý trong một khoảng thời gian (ví dụ: 10k RPS).
+
+**Các kỹ thuật tối ưu:**
+*   **Giảm Latency & Tăng Throughput:** Cache, Database Index, Connection Pool, Async Processing, Scale ngang.
+*   **Tăng Throughput (có thể tăng Latency):** Batch Processing.
+
+**Bảng ghi nhớ nhanh:**
+| Kỹ thuật          | Latency | Throughput |
+| ----------------- | ------- | ---------- |
+| Cache             | ↓↓↓     | ↑↑         |
+| Database index    | ↓       | ↑          |
+| Read replica      | ↔       | ↑↑         |
+| Scale server      | ↔/↓     | ↑↑         |
+| Async queue       | ↓       | ↑          |
+| Batch             | ↑       | ↑↑         |
+| External API call | ↑↑      | ↓          |
+| Lock nhiều        | ↑       | ↓          |
+| Connection pool   | ↓       | ↑          |
+
+**Trong System Design, cần cân nhắc:**
+*   **Cần latency thấp?** Ưu tiên Cache, Async, Index, Fast response.
+*   **Cần throughput cao?** Ưu tiên Batch, Queue, Parallel processing, Scale ngang.
+
+---
 ---
 
 # PHẦN 2: CƠ SỞ DỮ LIỆU & BỘ NHỚ ĐỆM (DATABASE & CACHING)
