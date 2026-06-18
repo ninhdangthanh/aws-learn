@@ -4,6 +4,7 @@ import "fmt"
 
 type SystemF interface {
 	Print(prefix string)
+	CalSize() int
 }
 
 type Folder struct {
@@ -19,6 +20,16 @@ func (f *Folder) Print(prefix string) {
 	}
 }
 
+func (f *Folder) CalSize() int {
+	size := 1
+
+	for _, c := range f.Chilren {
+		size += c.CalSize()
+	}
+
+	return size
+}
+
 func main() {
 	parent := &Folder{Name: "parent"}
 
@@ -31,5 +42,6 @@ func main() {
 	parent.Chilren = append(parent.Chilren, fileChild1, folderChild1)
 	folderChild1.Chilren = append(folderChild1.Chilren, fileChild2)
 
+	fmt.Println("all size: ", parent.CalSize())
 	parent.Print("")
 }
