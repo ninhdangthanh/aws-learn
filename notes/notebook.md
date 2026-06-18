@@ -108,7 +108,36 @@ Kiến trúc hướng sự kiện (EDA) giúp giảm thiểu sự phụ thuộc 
 
 ---
 
-## 6. Lựa chọn Công nghệ: Temporal vs. RabbitMQ trong Golang Microservices
+## 6. Circuit Breaker, Service Discovery và API-led Architecture
+Đây là các mẫu kiến trúc quan trọng để vận hành microservices ở quy mô production: biết dịch vụ nằm ở đâu, tránh gọi dây chuyền vào dịch vụ đang lỗi, và tổ chức API theo tầng rõ ràng.
+
+### Circuit Breaker (Bộ ngắt mạch)
+Circuit Breaker bảo vệ hệ thống khỏi lỗi lan truyền khi một dependency như database, payment gateway hoặc service nội bộ phản hồi chậm/lỗi liên tục.
+
+*   **Closed:** Trạng thái bình thường, request được gửi đến dependency. Nếu tỷ lệ lỗi hoặc timeout vượt ngưỡng, circuit chuyển sang Open.
+*   **Open:** Tạm thời chặn request đến dependency lỗi và trả về fallback/error nhanh. Mục tiêu là tránh làm cạn thread pool, connection pool và tài nguyên của service gọi.
+*   **Half-open:** Sau một khoảng thời gian nghỉ (`cooldown`), cho phép một lượng nhỏ request thử nghiệm đi qua. Nếu thành công, circuit quay lại Closed; nếu tiếp tục lỗi, quay lại Open.
+*   **Best practices:** Luôn đặt timeout ngắn, retry có giới hạn kèm exponential backoff/jitter, fallback rõ ràng, metric theo dependency, và không retry các thao tác không idempotent nếu chưa có idempotency key.
+
+### Service Discovery (Khám phá dịch vụ)
+Service Discovery giúp client hoặc gateway tìm đúng instance đang sống của một service trong môi trường container/cloud nơi IP thay đổi liên tục.
+
+*   **Client-side Discovery:** Client truy vấn service registry (Consul, Eureka, etcd) để lấy danh sách instance rồi tự load balance. Linh hoạt nhưng tăng độ phức tạp ở mỗi client.
+*   **Server-side Discovery:** Client gọi vào load balancer/service mesh, hạ tầng phía sau tự tìm instance phù hợp. Dễ chuẩn hóa hơn, thường gặp trong Kubernetes Service, AWS Cloud Map, Envoy/Istio.
+*   **Health Check:** Registry chỉ nên trả về instance còn khỏe dựa trên liveness/readiness check. Nếu health check sai, traffic có thể bị route vào instance chết hoặc loại nhầm instance tốt.
+*   **Service Mesh:** Các sidecar proxy như Envoy có thể đảm nhiệm discovery, retry, mTLS, circuit breaker, tracing mà không nhúng quá nhiều logic hạ tầng vào code nghiệp vụ.
+
+### API-led Architecture
+API-led Architecture tổ chức API thành nhiều tầng để tách biệt trải nghiệm client, quy trình nghiệp vụ, và dữ liệu/hệ thống lõi.
+
+*   **Experience APIs:** API tối ưu riêng cho từng kênh tiêu thụ như Web, Mobile, Partner, Admin. Có thể gom dữ liệu từ nhiều nguồn để trả đúng shape UI cần.
+*   **Process APIs:** API điều phối nghiệp vụ liên service, ví dụ tạo đơn hàng gồm kiểm tra tồn kho, tạo payment intent, phát sự kiện fulfillment.
+*   **System APIs:** API bao quanh hệ thống lõi như database, ERP, CRM, payment provider, legacy service. Tầng này chuẩn hóa quyền truy cập và che giấu chi tiết tích hợp.
+*   **Lợi ích:** Giảm coupling giữa frontend và hệ thống lõi, tái sử dụng API tốt hơn, dễ quản trị versioning, security, rate limit và observability theo từng tầng.
+
+---
+
+## 7. Lựa chọn Công nghệ: Temporal vs. RabbitMQ trong Golang Microservices
 Việc chọn lựa công cụ truyền tin và quản lý quy trình công việc là tối quan trọng trong Golang.
 
 | Tiêu chí | RabbitMQ (Message Broker) | Temporal (Workflow Orchestration) |
@@ -121,7 +150,7 @@ Việc chọn lựa công cụ truyền tin và quản lý quy trình công vi�
 
 ---
 
-## 7. Kiến trúc Apache Kafka & Thiết kế Consumer Group chuyên sâu
+## 8. Kiến trúc Apache Kafka & Thiết kế Consumer Group chuyên sâu
 Apache Kafka là một nền tảng truyền phát sự kiện phân tán (Distributed Event Streaming) có thông lượng cực cao, khả năng chịu lỗi xuất sắc, và khả năng mở rộng ngang hoàn hảo.
 
 ### Cơ chế hoạt động của Consumer Groups & Rebalancing
@@ -140,7 +169,7 @@ Apache Kafka là một nền tảng truyền phát sự kiện phân tán (Distr
 2.  **Zero-Copy Technology:** Sử dụng lệnh hệ thống `sendfile` (trên Linux) để truyền dữ liệu trực tiếp từ OS Page Cache sang Network Socket mà không cần copy dữ liệu qua không gian người dùng (User-space memory), giảm thiểu tối đa CPU usage.
 3.  **Batching & Compression (Gom cụm & Nén):** Gom cụm nhiều tin nhắn thành một lô (batch) để gửi và nén dữ liệu giúp tiết kiệm tối đa băng thông mạng và I/O đĩa.
 
-## 8. Tóm tắt: Latency và Throughput trong hệ thống
+## 9. Tóm tắt: Latency và Throughput trong hệ thống
 
 **Latency** là thời gian hoàn thành một request/task (ví dụ: 50ms cho một API call).
 **Throughput** là số lượng request hệ thống xử lý trong một khoảng thời gian (ví dụ: 10k RPS).
@@ -196,6 +225,14 @@ PAGE 2:                 Lọc theo WHERE _id < Last_ID_Page_1 LIMIT 10 (Quét tr
 ## 2. Chiến lược Tối ưu hóa Database chuyên sâu
 *   **Replication (Sao chép dữ liệu):** Thiết lập mô hình Primary-Secondary. Mọi thao tác ghi thực hiện trên node Primary, dữ liệu được sao chép (đồng bộ/bất đồng bộ) sang các node Secondary. Client thực hiện đọc dữ liệu từ Secondary để phân tải cho Primary. Lưu ý rủi ro `Replication Lag` có thể dẫn đến việc đọc dữ liệu cũ chưa kịp đồng bộ.
 *   **Sharding (Phân mảnh ngang):** Chia tách bảng dữ liệu lớn ra nhiều máy chủ vật lý dựa trên một `Shard Key`. Cần cân nhắc kỹ thiết kế Shard Key để tránh xuất hiện phân mảnh nóng (`Hot Shard`) do khóa tăng dần tuần tự (Monotonic Shard Key) hoặc phân bổ dữ liệu không đồng đều.
+*   **Database Partitioning (Phân vùng dữ liệu):** Chia một bảng lớn thành nhiều phần nhỏ hơn để giảm lượng dữ liệu phải quét, cải thiện tốc độ truy vấn, quản lý dữ liệu lịch sử và tối ưu bảo trì index.
+    *   *Vertical Partitioning:* Tách bảng theo cột. Ví dụ: thông tin user cơ bản nằm ở bảng `users`, còn profile/blob/log lớn nằm ở bảng khác để giảm I/O cho truy vấn phổ biến.
+    *   *Horizontal Partitioning:* Tách bảng theo dòng. Ví dụ: bảng `orders` chia theo tháng, theo vùng địa lý, hoặc theo `tenant_id`.
+    *   *Range Partitioning:* Chia theo khoảng giá trị như `created_at` theo tháng/quý. Phù hợp dữ liệu time-series, log, order history nhưng dễ tạo hot partition nếu toàn bộ ghi mới dồn vào partition hiện tại.
+    *   *Hash Partitioning:* Băm khóa như `user_id` để phân phối đều dữ liệu. Tốt cho cân bằng tải nhưng khó query theo khoảng thời gian nếu không có index/phân vùng phụ trợ.
+    *   *List Partitioning:* Chia theo danh sách giá trị cố định như quốc gia, region, business unit. Dễ hiểu nhưng cần kế hoạch khi xuất hiện giá trị mới.
+    *   *Partition Pruning:* Database chỉ quét các partition liên quan nếu câu query có điều kiện khớp với partition key. Nếu query thiếu partition key, hệ thống vẫn có thể phải quét nhiều partition và mất lợi ích.
+    *   *Partitioning vs. Sharding:* Partitioning thường diễn ra trong cùng một database engine/cluster logic; sharding phân tán dữ liệu sang nhiều node/cluster độc lập. Sharding tăng scale lớn hơn nhưng làm join, transaction và vận hành phức tạp hơn nhiều.
 *   **Indexing (Đánh chỉ mục):** Áp dụng quy tắc tiền tố (Prefix Rule) khi thiết kế Compound Index. Tránh lạm dụng chỉ mục (`Over-indexing`) trên các hệ thống có tần suất ghi cao (Write-heavy), vì mỗi thao tác ghi sẽ buộc cơ sở dữ liệu cập nhật lại toàn bộ cây chỉ mục liên quan, gây nghẽn I/O đĩa cứng.
 *   **Transactions:** Hiểu rõ các cấp độ cô lập giao dịch (Read Uncommitted, Read Committed, Repeatable Read, Serializable). Trong hệ thống phân tán, ưu tiên thiết kế các idempotent transaction để đối phó với sự cố mạng.
 
@@ -454,6 +491,75 @@ Go tiếp cận lập trình đồng thời thông qua triết lý: *"Đừng gi
     *   `M` (Machine): Đại diện cho OS Thread vật lý.
     *   `P` (Processor): Đại diện cho bộ xử lý logic chứa hàng đợi của các Goroutine cần chạy.
     *   *Work Stealing:* Khi một luồng vật lý chạy hết việc, bộ lập lịch sẽ tự động "đánh cắp" Goroutine từ hàng đợi của Processor khác để chạy tiếp, tối ưu hóa tối đa hiệu năng đa nhân CPU.
+
+---
+
+### Các mẫu xử lý đồng thời phổ biến
+*   **Producer-Consumer:** Một hoặc nhiều luồng/goroutine sản sinh dữ liệu (`Producers`) đưa vào một hàng đợi chung (`Queue`/`Channel`), và một hoặc nhiều luồng/goroutine khác (`Consumers`) lấy dữ liệu từ hàng đợi đó ra để xử lý độc lập.
+    *   *Trong Go:* Channel thường đóng vai trò queue an toàn giữa producer và consumer. Dùng buffered channel để hấp thụ burst ngắn, nhưng vẫn cần kiểm soát backpressure để tránh producer đẩy nhanh hơn tốc độ consumer xử lý.
+    *   *Ứng dụng:* Xử lý job upload file, gửi email, ghi log bất đồng bộ, consume message từ Kafka/RabbitMQ rồi phân phối cho worker xử lý.
+*   **Thread Pool:** Khởi tạo trước một số lượng luồng nhất định và tái sử dụng chúng để xử lý các tác vụ, thay vì liên tục tạo mới và hủy luồng làm tiêu tốn tài nguyên hệ thống.
+    *   *Trong Go:* Ta thường triển khai biến thể `Worker Pool` bằng một số lượng goroutine cố định đọc job từ channel. Dù goroutine nhẹ hơn OS thread, worker pool vẫn cần thiết để giới hạn concurrency, bảo vệ database/API ngoài và kiểm soát memory.
+    *   *Quy tắc chọn số worker:* Với tác vụ I/O-bound có thể nhiều hơn số CPU core; với CPU-bound thường bám gần `GOMAXPROCS`/số core. Luôn đo bằng benchmark/metrics thay vì đoán cứng.
+
+### Golang Worker Pool
+Worker Pool giới hạn số goroutine xử lý đồng thời để hệ thống không bị "nổ" tài nguyên khi lượng job tăng đột biến.
+
+```go
+func worker(ctx context.Context, jobs <-chan Job, results chan<- Result) {
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case job, ok := <-jobs:
+            if !ok {
+                return
+            }
+            results <- process(job)
+        }
+    }
+}
+```
+
+*   **Thành phần:** `jobs` channel để nhận việc, `results` channel để trả kết quả, `context.Context` để hủy graceful, `sync.WaitGroup` để chờ toàn bộ worker kết thúc.
+*   **Lỗi thường gặp:** Không đóng channel đúng chỗ, không drain result channel, spawn goroutine vô hạn theo từng request, hoặc thiếu timeout khi gọi dependency ngoài.
+*   **Best practices:** Đặt queue size có chủ đích, expose metric `queue_depth`, `worker_busy`, `job_latency`, và có cơ chế retry/dead-letter cho job lỗi.
+
+### Pipeline Pattern
+Pipeline chia một quy trình lớn thành nhiều stage nối với nhau bằng channel. Mỗi stage nhận input, xử lý, rồi phát output cho stage tiếp theo.
+
+```
+Input Files -> Parse Stage -> Validate Stage -> Transform Stage -> Persist Stage
+```
+
+*   **Ưu điểm:** Tách trách nhiệm rõ ràng, dễ test từng stage, tận dụng concurrency tự nhiên giữa các bước.
+*   **Backpressure:** Nếu stage sau chậm, channel sẽ đầy và tự làm chậm stage trước. Đây là điểm mạnh nhưng cũng cần timeout/cancel để tránh treo toàn bộ pipeline.
+*   **Cancellation:** Luôn truyền `context.Context` qua các stage để khi request bị hủy hoặc có lỗi nghiêm trọng, toàn bộ pipeline dừng đúng cách.
+
+### Fan-out/Fan-in
+Fan-out chia một luồng công việc thành nhiều worker xử lý song song; Fan-in gom kết quả từ nhiều worker về một channel/result aggregator.
+
+*   **Fan-out:** Một input channel được nhiều worker cùng đọc để tăng throughput.
+*   **Fan-in:** Nhiều output channel được merge lại thành một stream kết quả duy nhất.
+*   **Ứng dụng:** Crawl nhiều URL, xử lý nhiều file, gọi song song nhiều service độc lập, tính toán batch dữ liệu.
+*   **Lưu ý:** Kết quả có thể về không đúng thứ tự ban đầu. Nếu cần preserve ordering, phải gắn sequence number và sắp xếp lại ở aggregator.
+
+### Memory Management trong Golang
+Go có garbage collector tự động, nhưng hệ thống backend hiệu năng cao vẫn cần hiểu allocation pattern để giảm pause time và CPU overhead.
+
+*   **Stack vs. Heap:** Goroutine bắt đầu với stack nhỏ và tự grow/shrink. Biến có thể bị đưa lên heap nếu escape khỏi scope hiện tại (`escape analysis`).
+*   **Giảm allocation:** Tái sử dụng buffer với `sync.Pool` cho object tạm thời lớn, tránh convert `[]byte` <-> `string` không cần thiết, preallocate slice/map khi biết kích thước gần đúng.
+*   **GC Pressure:** Nhiều object nhỏ sống ngắn làm tăng áp lực GC. Với hot path, dùng benchmark (`go test -bench -benchmem`) và profile (`pprof`) để tìm allocation thật sự đắt.
+*   **Memory leak phổ biến:** Goroutine bị kẹt do không nhận được tín hiệu cancel, channel không được consume, timer/ticker không `Stop`, cache không có TTL/eviction, hoặc giữ reference tới slice lớn dù chỉ cần một phần nhỏ.
+
+### Error Handling trong Golang
+Go ưu tiên xử lý lỗi tường minh bằng `error` thay vì exception. Điều này làm code hơi dài hơn nhưng giúp luồng lỗi rõ ràng trong production.
+
+*   **Wrap lỗi có ngữ cảnh:** Dùng `fmt.Errorf("create order: %w", err)` để giữ nguyên root cause và thêm ngữ cảnh nghiệp vụ.
+*   **Phân loại lỗi:** Dùng `errors.Is` cho sentinel error, `errors.As` cho custom error type, và map lỗi nghiệp vụ sang HTTP status/gRPC code nhất quán.
+*   **Không nuốt lỗi:** Nếu retry hết số lần vẫn lỗi, cần log với correlation/request id và trả lỗi có thể hành động được cho caller.
+*   **Concurrency error:** Với nhiều goroutine, dùng `errgroup.WithContext` để gom lỗi đầu tiên và tự hủy các goroutine còn lại khi một nhánh thất bại.
+*   **Panic:** Chỉ dùng cho lỗi lập trình không thể phục hồi hoặc trạng thái bất khả thi. Ở HTTP server cần recovery middleware để tránh crash toàn bộ process, nhưng không nên dùng panic như flow control.
 
 ---
 
