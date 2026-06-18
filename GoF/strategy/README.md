@@ -1,0 +1,1 @@
+# Strategy (Behavioral) ↔ Factory Pattern (Creational)
