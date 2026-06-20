@@ -1,7 +1,7 @@
 package main
 
+// idea: Đóng gói một request (yêu cầu/thao tác) thành một object (TurnOn func => LightOnCommand)
 func main() {
-
 	// Receiver
 	light := &Light{
 		name: "Bedroom Light",
@@ -45,4 +45,14 @@ func main() {
 
 	remote.PressButton()
 	remote.PressUndo()
+
+	// add các request (đã chuyển thành command) vào một list các hành động cần thực hiện
+	queue := []Command{}
+
+	queue = append(queue, turnOn)
+	queue = append(queue, turnOff)
+
+	for _, cmd := range queue {
+		cmd.Execute()
+	}
 }
