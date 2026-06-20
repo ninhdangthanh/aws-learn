@@ -2,23 +2,47 @@ package main
 
 func main() {
 
+	// Receiver
 	light := &Light{
-		name: "Bedroom light",
+		name: "Bedroom Light",
 	}
 
-	on := &TurnOnCommand{
-		light: light,
-	}
+	// Command
+	turnOn :=
+		&LightOnCommand{
+			light: light,
+		}
 
-	off := &TurnOffCommand{
-		light: light,
-	}
+	turnOff :=
+		&LightOffCommand{
+			light: light,
+		}
 
-	remote := &Remote{}
+	// Invoker
+	remote := &RemoteControl{}
 
-	remote.command = on
+	remote.SetCommand(turnOn)
+
 	remote.PressButton()
+	// Bedroom Light is ON
 
-	remote.command = off
+	remote.PressUndo()
+	// Bedroom Light is OFF
+
+	remote.SetCommand(turnOff)
+
 	remote.PressButton()
+	// Bedroom Light is OFF
+
+	remote.PressUndo()
+	// Bedroom Light is ON
+
+	remote.SetCommand(
+		&FanStartCommand{
+			fan: &Fan{speed: 18},
+		},
+	)
+
+	remote.PressButton()
+	remote.PressUndo()
 }
