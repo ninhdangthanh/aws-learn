@@ -1,15 +1,17 @@
 package without
 
 func GeneratePDF() {
-	// LoadData()
-	// FormatPDF()
-	// ExportPDF()
-	// SendNotification()
+	// LoadPaidOrders()
+	// ValidateOrders()
+	// FormatPDFWithTotals()
+	// UploadPDF()
+	// EmailFinance()
 }
 
 func GenerateExcel() {
-	// LoadData()
-	// FormatExcel()
-	// ExportExcel()
-	// SendNotification()
+	// LoadPaidOrders()
+	// ValidateOrders()
+	// FormatExcelWithPivotTable()
+	// UploadExcel()
+	// NotifyOperationsInSlack()
 }

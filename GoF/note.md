@@ -1,6 +1,8 @@
-# 1. Phân biệt Strategy với Command
+# GoF Design Patterns — Notes
 
-## Strategy
+## 1. Phân biệt Strategy với Command
+
+### Strategy
 
 Payment:
 
@@ -10,10 +12,11 @@ type PaymentStrategy interface {
 }
 ```
 
-Có:
-*   CreditCard
-*   Paypal
-*   BankTransfer
+Có các implementation:
+
+- `CreditCard`
+- `Paypal`
+- `BankTransfer`
 
 Code:
 
@@ -23,7 +26,7 @@ checkout.Pay()
 
 Bạn đổi cách thanh toán.
 
-## Command
+### Command
 
 API:
 
@@ -52,43 +55,48 @@ Worker:
 command.Execute()
 ```
 
-Bạn đổi thời điểm / nơi thực thi.
+Bạn đóng gói một yêu cầu để có thể đổi **thời điểm** hoặc **nơi thực thi**.
 
+## 2. Phân biệt Strategy với Template Method
 
-# 2. Phân biệt Strategy với Template Method
-
-## Strategy
+### Strategy
 
 Dùng khi cần thay thế toàn bộ hành vi hoặc thuật toán tại runtime.
 
 > Strategy = "thay cả quy trình"
 
-## Template Method
+### Template Method
 
 Dùng khi workflow tổng thể đã cố định, nhưng cho phép các implementation tùy chỉnh một vài bước bên trong workflow đó.
 
 > Template Method = "giữ quy trình, thay một vài bước"
 
-# 3. Phân biệt Strategy với State Pattern
+Ví dụ báo cáo có luồng cố định: tải dữ liệu → kiểm tra dữ liệu → định dạng → xuất file → gửi thông báo. PDF và Excel chỉ thay đổi các bước định dạng, xuất file và thông báo.
 
-State Pattern
+## 3. Phân biệt Strategy với State Pattern
 
-Sử dụng khi một object có nhiều trạng thái và hành vi thay đổi theo từng trạng thái.
+### State Pattern
 
-Thay vì dùng nhiều if/else hoặc switch theo state,
-đóng gói hành vi của mỗi trạng thái vào một class riêng.
+Sử dụng khi một object có nhiều trạng thái và hành vi thay đổi theo trạng thái hiện tại.
 
-Strategy = thay thế thuật toán.
+Thay vì dùng nhiều `if/else` hoặc `switch` theo state, đóng gói hành vi của mỗi trạng thái vào một type riêng.
 
-State = thay đổi hành vi dựa trên trạng thái hiện tại.
+- Strategy: thay thế thuật toán.
+- State: thay đổi hành vi dựa trên trạng thái hiện tại.
 
-Strategy: client chọn implementation.
+- Strategy: client chọn implementation.
+- State: state hiện tại quyết định hành vi và có thể tự chuyển sang state khác.
 
-State: state hiện tại quyết định hành vi và có thể tự chuyển sang state khác.
+Ví dụ vòng đời đơn hàng:
 
-Ví dụ:
-Pending -> Paid -> Shipped -> Delivered
+```text
+Pending → Paid → Shipped → Delivered
+   │       │
+   └───────┴──→ Cancelled
+```
 
-Strategy = "Tôi chọn cách làm"
+Ví dụ cho thấy `Ship()` bị từ chối ở `PendingState`, nhưng ở `PaidState` nó tự chuyển đơn hàng sang `ShippedState`. Đơn `Pending` có thể hủy trực tiếp; đơn `Paid` được hoàn tiền rồi chuyển sang `Cancelled`. Mỗi state chỉ chứa các luật hợp lệ của chính nó.
 
-State = "Trạng thái hiện tại quyết định cách làm"
+> Strategy = "Tôi chọn cách làm"
+
+> State = "Trạng thái hiện tại quyết định cách làm"

@@ -1,15 +1,12 @@
 package main
 
+import "log"
+
 func main() {
-	base := BaseReport{}
-
-	pdf := &PDFReport{}
-	base.Generator = pdf
-
-	base.Generate()
-
-	excel := &ExcelReport{}
-	base.Generator = excel
-
-	base.Generate()
+	for _, generator := range []ReportGenerator{&PDFReport{}, &ExcelReport{}} {
+		base := BaseReport{Generator: generator}
+		if err := base.Generate(); err != nil {
+			log.Printf("could not generate report: %v", err)
+		}
+	}
 }

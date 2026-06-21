@@ -16,10 +16,16 @@ func (o *Order) Ship() {
 	}
 }
 
+func (o *Order) Deliver() {
+	if o.state == "shipped" {
+		o.state = "delivered"
+	}
+}
+
 func (o *Order) Cancel() {
-	if o.state == "pending" {
+	if o.state == "pending" || o.state == "paid" {
 		o.state = "cancelled"
 	}
 }
 
-// too complicated with if/else
+// More actions and states make these conditions spread across the Order type.

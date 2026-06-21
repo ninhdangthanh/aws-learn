@@ -1,16 +1,19 @@
 package main
 
 func main() {
-	order := &Order{
-		state: &PendingState{},
-	}
+	order := &Order{ID: "ORD-100", Total: 450_000, state: &PendingState{}}
 
-	// Cannot ship unpaid order
+	// Invalid transition: an unpaid order cannot be shipped.
 	order.Ship()
 
-	// Payment success
+	// Valid lifecycle: pending -> paid -> shipped -> delivered.
 	order.Pay()
-
-	// Order shipped
 	order.Ship()
+	order.Deliver()
+
+	// A different order follows the cancellation path.
+	cancelledOrder := &Order{ID: "ORD-101", Total: 120_000, state: &PendingState{}}
+	cancelledOrder.Pay()
+	cancelledOrder.Cancel()
+	cancelledOrder.Ship()
 }
