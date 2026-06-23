@@ -1,5 +1,9 @@
 # 🤖 RAG Chatbot AI Backend
 
+## Kế hoạch MVP
+
+Checklist triển khai 7 ngày: [docs/mvp-7-day-plan.md](./docs/mvp-7-day-plan.md).
+
 > An Internal Document QA System powered by Retrieval-Augmented Generation (RAG), built with Go.
 >
 > Upload PDF documents → Ask questions in natural language → Get accurate answers with citations.
