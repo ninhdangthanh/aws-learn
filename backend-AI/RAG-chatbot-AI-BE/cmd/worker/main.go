@@ -13,8 +13,7 @@ func main() {
 	}
 
 	log.Printf(
-		"worker bootstrap ready (env=%s, redis=%s, postgres=%s:%d, qdrant=%s)",
-		cfg.App.Env,
+		"worker bootstrap ready (redis=%s, postgres=%s:%d, qdrant=%s)",
 		cfg.Redis.Addr,
 		cfg.Postgres.Host,
 		cfg.Postgres.Port,

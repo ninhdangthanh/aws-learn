@@ -20,7 +20,6 @@ type Config struct {
 
 type AppConfig struct {
 	Name            string
-	Env             string
 	Host            string
 	Port            int
 	ReadTimeout     time.Duration
@@ -78,7 +77,6 @@ func Load() (Config, error) {
 	cfg := Config{
 		App: AppConfig{
 			Name:            v.GetString("APP_NAME"),
-			Env:             v.GetString("APP_ENV"),
 			Host:            v.GetString("APP_HOST"),
 			Port:            v.GetInt("APP_PORT"),
 			ReadTimeout:     v.GetDuration("APP_READ_TIMEOUT"),
@@ -120,7 +118,6 @@ func Load() (Config, error) {
 
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("APP_NAME", "rag-chatbot-ai-backend")
-	v.SetDefault("APP_ENV", "development")
 	v.SetDefault("APP_HOST", "0.0.0.0")
 	v.SetDefault("APP_PORT", 8099)
 	v.SetDefault("APP_READ_TIMEOUT", "10s")
