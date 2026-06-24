@@ -10,6 +10,7 @@ import (
 
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/httpserver"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/postgres"
 )
 
 func main() {
@@ -18,7 +19,12 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	server := httpserver.New(cfg)
+	db, err := postgres.Open(context.Background(), cfg.Postgres)
+	if err != nil {
+		log.Fatalf("open postgres: %v", err)
+	}
+
+	server := httpserver.New(cfg, db)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

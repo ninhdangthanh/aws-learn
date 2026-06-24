@@ -1,6 +1,7 @@
 .env
 .DS_Store
 .cache/
+storage/uploads/
 bin/
 dist/
 coverage.out

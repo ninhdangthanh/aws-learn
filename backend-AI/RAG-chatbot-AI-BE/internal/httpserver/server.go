@@ -6,17 +6,27 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/handler"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
 )
 
 type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg config.Config) *Server {
+func New(cfg config.Config, db *gorm.DB) *Server {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.MaxMultipartMemory = cfg.Upload.MaxFileSizeBytes
+
+	documentHandler := handler.NewDocumentHandler(
+		repository.NewDocumentRepository(db),
+		cfg.Upload.Dir,
+		cfg.Upload.MaxFileSizeBytes,
+	)
 
 	api := router.Group("/api/v1")
 	api.GET("/health", func(c *gin.Context) {
@@ -26,6 +36,8 @@ func New(cfg config.Config) *Server {
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+	api.POST("/documents", documentHandler.Upload)
+	api.GET("/documents/:id", documentHandler.GetStatus)
 
 	return &Server{
 		httpServer: &http.Server{

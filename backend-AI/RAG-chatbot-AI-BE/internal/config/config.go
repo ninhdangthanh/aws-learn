@@ -12,6 +12,7 @@ import (
 
 type Config struct {
 	App      AppConfig
+	Upload   UploadConfig
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Qdrant   QdrantConfig
@@ -25,6 +26,11 @@ type AppConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+}
+
+type UploadConfig struct {
+	Dir             string
+	MaxFileSizeBytes int64
 }
 
 func (c AppConfig) Address() string {
@@ -83,6 +89,10 @@ func Load() (Config, error) {
 			WriteTimeout:    v.GetDuration("APP_WRITE_TIMEOUT"),
 			ShutdownTimeout: v.GetDuration("APP_SHUTDOWN_TIMEOUT"),
 		},
+		Upload: UploadConfig{
+			Dir:              v.GetString("UPLOAD_DIR"),
+			MaxFileSizeBytes: v.GetInt64("UPLOAD_MAX_FILE_SIZE_BYTES"),
+		},
 		Postgres: PostgresConfig{
 			Host:     v.GetString("POSTGRES_HOST"),
 			Port:     v.GetInt("POSTGRES_PORT"),
@@ -124,6 +134,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("APP_WRITE_TIMEOUT", "10s")
 	v.SetDefault("APP_SHUTDOWN_TIMEOUT", "10s")
 
+	v.SetDefault("UPLOAD_DIR", "storage/uploads")
+	v.SetDefault("UPLOAD_MAX_FILE_SIZE_BYTES", 10485760)
+
 	v.SetDefault("POSTGRES_HOST", "localhost")
 	v.SetDefault("POSTGRES_PORT", 5432)
 	v.SetDefault("POSTGRES_DB", "ragchat")
@@ -156,6 +169,14 @@ func (c Config) Validate() error {
 
 	if c.Redis.Addr == "" {
 		return fmt.Errorf("REDIS_ADDR is required")
+	}
+
+	if c.Upload.Dir == "" {
+		return fmt.Errorf("UPLOAD_DIR is required")
+	}
+
+	if c.Upload.MaxFileSizeBytes <= 0 {
+		return fmt.Errorf("UPLOAD_MAX_FILE_SIZE_BYTES must be greater than 0")
 	}
 
 	if c.Qdrant.URL == "" {

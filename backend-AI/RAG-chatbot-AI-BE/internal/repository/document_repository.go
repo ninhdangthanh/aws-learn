@@ -34,11 +34,16 @@ func NewDocumentRepository(db *gorm.DB) *DocumentRepository {
 }
 
 func (r *DocumentRepository) Create(ctx context.Context, input CreateDocumentInput) (model.Document, error) {
+	status := input.Status
+	if status == "" {
+		status = "pending"
+	}
+
 	document := model.Document{
 		Filename: input.Filename,
 		FileSize: input.FileSize,
 		FileType: input.FileType,
-		Status:   input.Status,
+		Status:   status,
 	}
 
 	err := r.db.WithContext(ctx).Create(&document).Error

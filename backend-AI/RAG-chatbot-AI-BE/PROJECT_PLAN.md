@@ -46,11 +46,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 3.1 | Router + middleware | Gin router, recovery, request logging | [ ] |
-| 3.2 | Upload endpoint | `POST /api/v1/documents`, save file, create DB record | [ ] |
-| 3.3 | Status endpoint | `GET /api/v1/documents/:id` | [ ] |
-| 3.4 | File validation | PDF only for MVP, size limit, error response | [ ] |
-| 3.5 | Upload smoke test | Test with `curl -F "file=@..."` | [ ] |
+| 3.1 | Router + middleware | Gin router, recovery, request logging | [x] |
+| 3.2 | Upload endpoint | `POST /api/v1/documents`, save file, create DB record | [x] |
+| 3.3 | Status endpoint | `GET /api/v1/documents/:id` | [x] |
+| 3.4 | File validation | PDF only for MVP, size limit, error response | [x] |
+| 3.5 | Upload smoke test | Test with `curl -F "file=@..."` | [x] |
 
 Acceptance criteria:
 
