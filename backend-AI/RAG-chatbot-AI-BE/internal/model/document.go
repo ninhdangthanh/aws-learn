@@ -9,6 +9,7 @@ import (
 type Document struct {
 	ID         uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	Filename   string    `gorm:"type:varchar(500);not null" json:"filename"`
+	StoragePath *string   `gorm:"type:text" json:"-"`
 	FileSize   int64     `gorm:"not null" json:"file_size"`
 	FileType   string    `gorm:"type:varchar(20);not null" json:"file_type"`
 	Status     string    `gorm:"type:varchar(20);not null;default:pending" json:"status"`

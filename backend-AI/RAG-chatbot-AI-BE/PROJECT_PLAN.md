@@ -64,11 +64,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 4.1 | Parser interface | Common interface for PDF now, DOCX later | [ ] |
-| 4.2 | PDF parser | Extract text and page numbers | [ ] |
-| 4.3 | Chunker | 500-token chunks, 100-token overlap | [ ] |
-| 4.4 | Save chunks | Persist content, page, chunk index, token count | [ ] |
-| 4.5 | Unit tests | Parser/chunker behavior with small fixture | [ ] |
+| 4.1 | Parser interface | Common interface for PDF now, DOCX later | [x] |
+| 4.2 | PDF parser | Extract text and page numbers | [x] |
+| 4.3 | Chunker | 500-token chunks, 100-token overlap | [x] |
+| 4.4 | Save chunks | Persist content, page, chunk index, token count | [x] |
+| 4.5 | Unit tests | Parser/chunker behavior with small fixture | [x] |
 
 Acceptance criteria:
 

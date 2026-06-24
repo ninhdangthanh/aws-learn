@@ -76,10 +76,11 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 	}
 
 	document, err := h.repo.Create(c.Request.Context(), repository.CreateDocumentInput{
-		Filename: filename,
-		FileSize: fileHeader.Size,
-		FileType: "pdf",
-		Status:   "pending",
+		Filename:    filename,
+		StoragePath: &storedPath,
+		FileSize:    fileHeader.Size,
+		FileType:    "pdf",
+		Status:      "pending",
 	})
 	if err != nil {
 		_ = os.Remove(storedPath)

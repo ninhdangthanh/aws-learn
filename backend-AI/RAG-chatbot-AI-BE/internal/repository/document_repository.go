@@ -14,10 +14,11 @@ type DocumentRepository struct {
 }
 
 type CreateDocumentInput struct {
-	Filename string
-	FileSize int64
-	FileType string
-	Status   string
+	Filename    string
+	StoragePath *string
+	FileSize    int64
+	FileType    string
+	Status      string
 }
 
 type UpdateDocumentStatusInput struct {
@@ -40,10 +41,11 @@ func (r *DocumentRepository) Create(ctx context.Context, input CreateDocumentInp
 	}
 
 	document := model.Document{
-		Filename: input.Filename,
-		FileSize: input.FileSize,
-		FileType: input.FileType,
-		Status:   status,
+		Filename:    input.Filename,
+		StoragePath: input.StoragePath,
+		FileSize:    input.FileSize,
+		FileType:    input.FileType,
+		Status:      status,
 	}
 
 	err := r.db.WithContext(ctx).Create(&document).Error

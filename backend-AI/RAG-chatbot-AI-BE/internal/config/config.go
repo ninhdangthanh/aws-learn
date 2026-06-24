@@ -13,6 +13,7 @@ import (
 type Config struct {
 	App      AppConfig
 	Upload   UploadConfig
+	Chunking ChunkingConfig
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Qdrant   QdrantConfig
@@ -31,6 +32,11 @@ type AppConfig struct {
 type UploadConfig struct {
 	Dir             string
 	MaxFileSizeBytes int64
+}
+
+type ChunkingConfig struct {
+	ChunkSizeTokens int
+	ChunkOverlapTokens int
 }
 
 func (c AppConfig) Address() string {
@@ -93,6 +99,10 @@ func Load() (Config, error) {
 			Dir:              v.GetString("UPLOAD_DIR"),
 			MaxFileSizeBytes: v.GetInt64("UPLOAD_MAX_FILE_SIZE_BYTES"),
 		},
+		Chunking: ChunkingConfig{
+			ChunkSizeTokens:    v.GetInt("CHUNK_SIZE"),
+			ChunkOverlapTokens: v.GetInt("CHUNK_OVERLAP"),
+		},
 		Postgres: PostgresConfig{
 			Host:     v.GetString("POSTGRES_HOST"),
 			Port:     v.GetInt("POSTGRES_PORT"),
@@ -136,6 +146,8 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("UPLOAD_DIR", "storage/uploads")
 	v.SetDefault("UPLOAD_MAX_FILE_SIZE_BYTES", 10485760)
+	v.SetDefault("CHUNK_SIZE", 500)
+	v.SetDefault("CHUNK_OVERLAP", 100)
 
 	v.SetDefault("POSTGRES_HOST", "localhost")
 	v.SetDefault("POSTGRES_PORT", 5432)
@@ -177,6 +189,18 @@ func (c Config) Validate() error {
 
 	if c.Upload.MaxFileSizeBytes <= 0 {
 		return fmt.Errorf("UPLOAD_MAX_FILE_SIZE_BYTES must be greater than 0")
+	}
+
+	if c.Chunking.ChunkSizeTokens <= 0 {
+		return fmt.Errorf("CHUNK_SIZE must be greater than 0")
+	}
+
+	if c.Chunking.ChunkOverlapTokens < 0 {
+		return fmt.Errorf("CHUNK_OVERLAP must be greater than or equal to 0")
+	}
+
+	if c.Chunking.ChunkOverlapTokens >= c.Chunking.ChunkSizeTokens {
+		return fmt.Errorf("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
 	}
 
 	if c.Qdrant.URL == "" {
