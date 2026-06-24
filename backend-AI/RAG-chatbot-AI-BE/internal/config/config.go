@@ -14,6 +14,7 @@ type Config struct {
 	App      AppConfig
 	Upload   UploadConfig
 	Chunking ChunkingConfig
+	Asynq    AsynqConfig
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Qdrant   QdrantConfig
@@ -37,6 +38,11 @@ type UploadConfig struct {
 type ChunkingConfig struct {
 	ChunkSizeTokens int
 	ChunkOverlapTokens int
+}
+
+type AsynqConfig struct {
+	QueueName   string
+	Concurrency int
 }
 
 func (c AppConfig) Address() string {
@@ -103,6 +109,10 @@ func Load() (Config, error) {
 			ChunkSizeTokens:    v.GetInt("CHUNK_SIZE"),
 			ChunkOverlapTokens: v.GetInt("CHUNK_OVERLAP"),
 		},
+		Asynq: AsynqConfig{
+			QueueName:   v.GetString("ASYNQ_QUEUE_NAME"),
+			Concurrency: v.GetInt("ASYNQ_CONCURRENCY"),
+		},
 		Postgres: PostgresConfig{
 			Host:     v.GetString("POSTGRES_HOST"),
 			Port:     v.GetInt("POSTGRES_PORT"),
@@ -148,6 +158,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("UPLOAD_MAX_FILE_SIZE_BYTES", 10485760)
 	v.SetDefault("CHUNK_SIZE", 500)
 	v.SetDefault("CHUNK_OVERLAP", 100)
+	v.SetDefault("ASYNQ_QUEUE_NAME", "default")
+	v.SetDefault("ASYNQ_CONCURRENCY", 10)
 
 	v.SetDefault("POSTGRES_HOST", "localhost")
 	v.SetDefault("POSTGRES_PORT", 5432)
@@ -201,6 +213,14 @@ func (c Config) Validate() error {
 
 	if c.Chunking.ChunkOverlapTokens >= c.Chunking.ChunkSizeTokens {
 		return fmt.Errorf("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
+	}
+
+	if c.Asynq.QueueName == "" {
+		return fmt.Errorf("ASYNQ_QUEUE_NAME is required")
+	}
+
+	if c.Asynq.Concurrency <= 0 {
+		return fmt.Errorf("ASYNQ_CONCURRENCY must be greater than 0")
 	}
 
 	if c.Qdrant.URL == "" {

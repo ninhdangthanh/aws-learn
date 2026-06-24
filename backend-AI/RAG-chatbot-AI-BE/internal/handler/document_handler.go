@@ -23,17 +23,24 @@ import (
 type DocumentStore interface {
 	Create(ctx context.Context, input repository.CreateDocumentInput) (model.Document, error)
 	Get(ctx context.Context, id uuid.UUID) (model.Document, error)
+	UpdateStatus(ctx context.Context, input repository.UpdateDocumentStatusInput) (model.Document, error)
+}
+
+type DocumentTaskDistributor interface {
+	EnqueueParseDocument(ctx context.Context, documentID uuid.UUID, filePath string) error
 }
 
 type DocumentHandler struct {
 	repo            DocumentStore
+	taskDistributor DocumentTaskDistributor
 	uploadDir       string
 	maxFileSizeByte int64
 }
 
-func NewDocumentHandler(repo DocumentStore, uploadDir string, maxFileSizeByte int64) *DocumentHandler {
+func NewDocumentHandler(repo DocumentStore, taskDistributor DocumentTaskDistributor, uploadDir string, maxFileSizeByte int64) *DocumentHandler {
 	return &DocumentHandler{
 		repo:            repo,
+		taskDistributor: taskDistributor,
 		uploadDir:       uploadDir,
 		maxFileSizeByte: maxFileSizeByte,
 	}
@@ -85,6 +92,18 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 	if err != nil {
 		_ = os.Remove(storedPath)
 		writeError(c, http.StatusInternalServerError, "database_error", "failed to create document")
+		return
+	}
+
+	if err := h.taskDistributor.EnqueueParseDocument(c.Request.Context(), document.ID, storedPath); err != nil {
+		_ = os.Remove(storedPath)
+		message := err.Error()
+		_, _ = h.repo.UpdateStatus(c.Request.Context(), repository.UpdateDocumentStatusInput{
+			ID:       document.ID,
+			Status:   "failed",
+			ErrorMsg: &message,
+		})
+		writeError(c, http.StatusInternalServerError, "queue_error", "failed to enqueue parse job")
 		return
 	}
 

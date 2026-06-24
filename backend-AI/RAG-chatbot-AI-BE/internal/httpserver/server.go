@@ -11,19 +11,21 @@ import (
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/handler"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/worker"
 )
 
 type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg config.Config, db *gorm.DB) *Server {
+func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) *Server {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.MaxMultipartMemory = cfg.Upload.MaxFileSizeBytes
 
 	documentHandler := handler.NewDocumentHandler(
 		repository.NewDocumentRepository(db),
+		distributor,
 		cfg.Upload.Dir,
 		cfg.Upload.MaxFileSizeBytes,
 	)

@@ -82,11 +82,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 5.1 | Asynq setup | Client in API, server in worker binary | [ ] |
-| 5.2 | Parse job payload | Include document ID and file path | [ ] |
-| 5.3 | Enqueue parse job | Upload endpoint creates job | [ ] |
-| 5.4 | Parse worker | Parse file, chunk text, save chunks | [ ] |
-| 5.5 | Failure handling | Set `failed` status and `error_msg` | [ ] |
+| 5.1 | Asynq setup | Client in API, server in worker binary | [x] |
+| 5.2 | Parse job payload | Include document ID and file path | [x] |
+| 5.3 | Enqueue parse job | Upload endpoint creates job | [x] |
+| 5.4 | Parse worker | Parse file, chunk text, save chunks | [x] |
+| 5.5 | Failure handling | Set `failed` status and `error_msg` | [x] |
 
 Acceptance criteria:
 

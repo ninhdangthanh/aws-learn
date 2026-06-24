@@ -11,6 +11,7 @@ import (
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/httpserver"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/postgres"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/worker"
 )
 
 func main() {
@@ -24,7 +25,10 @@ func main() {
 		log.Fatalf("open postgres: %v", err)
 	}
 
-	server := httpserver.New(cfg, db)
+	distributor := worker.NewRedisTaskDistributor(cfg)
+	defer distributor.Close()
+
+	server := httpserver.New(cfg, db, distributor)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
