@@ -10,11 +10,11 @@
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 1.1 | Project scaffold | `go mod init`, folder structure, `cmd/api`, `cmd/worker`, `internal/*` | [ ] |
-| 1.2 | Makefile | `run-api`, `run-worker`, `test`, `migrate-up`, `docker-up` | [ ] |
-| 1.3 | Environment config | `.env.example`, Viper config loading | [ ] |
-| 1.4 | Docker Compose | PostgreSQL 16 + Redis 7 + Qdrant latest | [ ] |
-| 1.5 | App bootstrap | API starts and returns a simple health response | [ ] |
+| 1.1 | Project scaffold | `go mod init`, folder structure, `cmd/api`, `cmd/worker`, `internal/*` | [x] |
+| 1.2 | Makefile | `run-api`, `run-worker`, `test`, `migrate-up`, `docker-up` | [x] |
+| 1.3 | Environment config | `.env.example`, Viper config loading | [x] |
+| 1.4 | Docker Compose | PostgreSQL 16 + Redis 7 + Qdrant latest | [x] |
+| 1.5 | App bootstrap | API starts and returns a simple health response | [x] |
 
 Acceptance criteria:
 

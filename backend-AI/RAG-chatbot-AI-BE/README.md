@@ -150,7 +150,7 @@ make run-api
 make run-worker
 ```
 
-The API server starts on `http://localhost:8080`.
+The API server starts on `http://localhost:8099`.
 
 ---
 
@@ -159,7 +159,7 @@ The API server starts on `http://localhost:8080`.
 ### Upload a Document
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/documents \
+curl -X POST http://localhost:8099/api/v1/documents \
   -F "file=@your-document.pdf"
 ```
 
@@ -175,7 +175,7 @@ Response:
 ### Check Document Status
 
 ```bash
-curl http://localhost:8080/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
+curl http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
 ```
 
 Wait for status to become `ready` (pending → parsing → chunked → embedding → ready).
@@ -183,7 +183,7 @@ Wait for status to become `ready` (pending → parsing → chunked → embedding
 ### Search Documents
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/search \
+curl -X POST http://localhost:8099/api/v1/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is the refund policy?",
@@ -194,7 +194,7 @@ curl -X POST http://localhost:8080/api/v1/search \
 ### Ask a Question
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/chat \
+curl -X POST http://localhost:8099/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "What is the refund policy for delivery orders?",
@@ -224,7 +224,7 @@ Response:
 ### Streaming Response (SSE)
 
 ```bash
-curl -N -X POST http://localhost:8080/api/v1/chat \
+curl -N -X POST http://localhost:8099/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "What is the refund policy?",
@@ -235,7 +235,7 @@ curl -N -X POST http://localhost:8080/api/v1/chat \
 ### Health Check
 
 ```bash
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8099/api/v1/health
 ```
 
 ---
@@ -319,7 +319,7 @@ sqlc generates type-safe Go code from raw SQL queries. This means:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | API server port | `8080` |
+| `PORT` | API server port | `8099` |
 | `OPENAI_API_KEY` | OpenAI API key | (required) |
 | `OPENAI_EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
 | `OPENAI_LLM_MODEL` | LLM model | `gpt-4.1-mini` |

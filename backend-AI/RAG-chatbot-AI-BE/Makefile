@@ -1,19 +1,23 @@
-# Makefile for RAG chatbot backend
+.PHONY: run-api run-worker build test tidy migrate-up migrate-down docker-up docker-down
 
-.PHONY: run-api run-worker migrate-up migrate-down docker-up docker-down build test tidy
+GO ?= go
+COMPOSE ?= docker compose
 
 run-api:
-	go run ./cmd/api
+	$(GO) run ./cmd/api
 
 run-worker:
-	go run ./cmd/worker
+	$(GO) run ./cmd/worker
 
 build:
-	go build ./cmd/api
-	go build ./cmd/worker
+	$(GO) build ./cmd/api
+	$(GO) build ./cmd/worker
+
+test:
+	$(GO) test ./...
 
 tidy:
-	go mod tidy
+	$(GO) mod tidy
 
 migrate-up:
 	migrate -path db/migrations -database "$(POSTGRES_DSN)" up
@@ -22,27 +26,7 @@ migrate-down:
 	migrate -path db/migrations -database "$(POSTGRES_DSN)" down
 
 docker-up:
-	docker-compose up -d
+	$(COMPOSE) up -d
 
 docker-down:
-	docker-compose down
-
-test:
-	go test ./...
-
-
-# Frontend helpers
-.PHONY: run-frontend dev
-
-run-frontend:
-	@echo "Starting frontend (will install deps if needed)"
-	cd frontend && npm install && npm run dev
-
-# Run API in background and frontend in foreground (simple dev helper)
-dev: 
-	@echo "Running API in background and frontend in foreground"
-	# start api in background
-	(go run ./cmd/api) &
-	# give API a moment to start
-	sleep 1
-	cd frontend && npm install && npm run dev
+	$(COMPOSE) down
