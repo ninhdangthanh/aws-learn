@@ -173,7 +173,7 @@ Chunk + Embed
 | LLM             | GPT-4.1 / Claude              |
 | PDF parsing     | unidoc / pdfcpu               |
 | DOCX parsing    | unioffice                     |
-| ORM             | sqlc hoặc GORM                |
+| ORM             | GORM                          |
 | Queue           | Redis                         |
 | Storage         | PostgreSQL                    |
 | Container       | Docker                        |

@@ -100,7 +100,7 @@ AI:   "According to the refund policy document, delivery order refunds
 | PDF Parsing | pdfcpu / unipdf |
 | Database | PostgreSQL (metadata + chat history) |
 | Queue / Cache | Redis |
-| SQL Layer | sqlc (type-safe, generated) |
+| SQL Layer | GORM |
 | Containerization | Docker + docker-compose |
 
 ---
@@ -290,12 +290,12 @@ Goroutines alone can't provide these guarantees. Asynq (Redis-backed) gives us p
 - **100-token overlap**: Prevents cutting sentences at chunk boundaries, ensures continuity across chunks
 - This is a common starting point — the optimal size depends on your document types
 
-### Why sqlc instead of GORM?
+### Why GORM for this demo?
 
-sqlc generates type-safe Go code from raw SQL queries. This means:
-- Full control over queries (no ORM magic)
-- Compile-time type safety
-- More educational — you write and understand the actual SQL
+GORM is a better fit for this repo's current pace:
+- Fast CRUD scaffolding for early product phases
+- Less generator/setup overhead while the API is still evolving
+- Still paired with `golang-migrate`, so schema changes stay explicit
 
 ---
 

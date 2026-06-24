@@ -28,11 +28,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 2.1 | DB migrations | `documents`, `chunks`, `chat_sessions`, `chat_messages` | [ ] |
-| 2.2 | sqlc setup | `sqlc.yaml`, query files, generated Go code | [ ] |
-| 2.3 | Document repository | Create, get, list, update status | [ ] |
-| 2.4 | Chunk repository | Bulk insert chunks, get chunks by document | [ ] |
-| 2.5 | Chat repository skeleton | Sessions and messages basic methods | [ ] |
+| 2.1 | DB migrations | `documents`, `chunks`, `chat_sessions`, `chat_messages` | [x] |
+| 2.2 | GORM setup | models, DB connection, repository wiring | [x] |
+| 2.3 | Document repository | Create, get, list, update status | [x] |
+| 2.4 | Chunk repository | Bulk insert chunks, get chunks by document | [x] |
+| 2.5 | Chat repository skeleton | Sessions and messages basic methods | [x] |
 
 Acceptance criteria:
 

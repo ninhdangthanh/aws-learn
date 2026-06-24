@@ -2,6 +2,7 @@
 
 GO ?= go
 COMPOSE ?= docker compose
+MIGRATE ?= $(GO) run -tags=postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
 
 run-api:
 	$(GO) run ./cmd/api
@@ -20,10 +21,10 @@ tidy:
 	$(GO) mod tidy
 
 migrate-up:
-	migrate -path db/migrations -database "$(POSTGRES_DSN)" up
+	$(MIGRATE) -path db/migrations -database "$(POSTGRES_DSN)" up
 
 migrate-down:
-	migrate -path db/migrations -database "$(POSTGRES_DSN)" down
+	$(MIGRATE) -path db/migrations -database "$(POSTGRES_DSN)" down
 
 docker-up:
 	$(COMPOSE) up -d

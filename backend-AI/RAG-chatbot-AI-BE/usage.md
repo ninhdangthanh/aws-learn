@@ -24,7 +24,7 @@ docker-compose up -d
 
 ```bash
 make migrate-up
-# or use golang-migrate directly if configured
+# or use golang-migrate directly if needed
 ```
 
 4. Run the API server and worker in separate terminals:
