@@ -93,6 +93,7 @@ Acceptance criteria:
 - Upload returns quickly while worker processes in background.
 - Status moves `pending -> parsing -> chunked`.
 - Failed parsing is visible through status endpoint.
+- Parse processing is idempotent: already-`chunked` documents are skipped, and retries replace prior chunks before re-inserting.
 
 ### Phase 6 - Embedding & Vector Indexing
 

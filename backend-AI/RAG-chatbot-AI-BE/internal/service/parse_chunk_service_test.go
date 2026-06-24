@@ -31,7 +31,13 @@ func (f *fakeDocumentRepo) UpdateStatus(ctx context.Context, input repository.Up
 }
 
 type fakeChunkRepo struct {
+	deletedFor uuid.UUID
 	lastInputs []repository.CreateChunkInput
+}
+
+func (f *fakeChunkRepo) DeleteByDocument(ctx context.Context, documentID uuid.UUID) error {
+	f.deletedFor = documentID
+	return nil
 }
 
 func (f *fakeChunkRepo) BulkInsert(ctx context.Context, inputs []repository.CreateChunkInput) ([]model.Chunk, error) {
@@ -86,5 +92,9 @@ func TestParseChunkServiceProcess(t *testing.T) {
 
 	if len(chunkRepo.lastInputs) != len(chunks) {
 		t.Fatalf("expected %d chunk inserts, got %d", len(chunks), len(chunkRepo.lastInputs))
+	}
+
+	if chunkRepo.deletedFor != documentID {
+		t.Fatalf("expected delete existing chunks for %s, got %s", documentID, chunkRepo.deletedFor)
 	}
 }

@@ -52,6 +52,12 @@ func (r *ChunkRepository) BulkInsert(ctx context.Context, inputs []CreateChunkIn
 	return chunks, nil
 }
 
+func (r *ChunkRepository) DeleteByDocument(ctx context.Context, documentID uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Where("document_id = ?", documentID).
+		Delete(&model.Chunk{}).Error
+}
+
 func (r *ChunkRepository) GetByDocument(ctx context.Context, documentID uuid.UUID) ([]model.Chunk, error) {
 	var chunks []model.Chunk
 	err := r.db.WithContext(ctx).

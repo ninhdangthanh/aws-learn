@@ -14,6 +14,7 @@ import (
 )
 
 type documentStatusRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (model.Document, error)
 	UpdateStatus(ctx context.Context, input repository.UpdateDocumentStatusInput) (model.Document, error)
 }
 
@@ -42,6 +43,15 @@ func (p *TaskProcessor) ProcessDocumentParseTask(ctx context.Context, task *asyn
 	documentID, err := tasks.ParseDocumentID(payload.DocumentID)
 	if err != nil {
 		return fmt.Errorf("parse document id: %w", err)
+	}
+
+	document, err := p.documentRepo.Get(ctx, documentID)
+	if err != nil {
+		return fmt.Errorf("get document for parse task: %w", err)
+	}
+
+	if document.Status == "chunked" {
+		return nil
 	}
 
 	if _, err := p.documentRepo.UpdateStatus(ctx, repository.UpdateDocumentStatusInput{

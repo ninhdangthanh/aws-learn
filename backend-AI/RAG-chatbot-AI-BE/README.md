@@ -78,6 +78,13 @@ AI:   "According to the refund policy document, delivery order refunds
 3. Embed Worker converts chunks to vectors via OpenAI Embedding API
 4. Vectors are stored in Qdrant with document metadata
 
+Current async parsing notes:
+
+- Upload returns after enqueuing a parse job
+- Worker status flow is `pending -> parsing -> chunked`
+- If parsing fails, document status becomes `failed`
+- Parse jobs are idempotent: already `chunked` documents are skipped, and retries replace existing chunks before inserting again
+
 **Chat Flow:**
 
 1. User asks a question → question is embedded to a vector
@@ -283,6 +290,11 @@ Document ingestion is a multi-step pipeline (parse → chunk → embed) that mus
 - Provide visibility into job status
 
 Goroutines alone can't provide these guarantees. Asynq (Redis-backed) gives us persistent, retryable, observable job processing.
+
+To make retries safe, the parse worker is idempotent:
+
+- it skips documents that are already `chunked`
+- it deletes existing chunks for the document before re-inserting on retry
 
 ### Why 500-token chunks with 100-token overlap?
 

@@ -17,6 +17,7 @@ type documentStatusUpdater interface {
 }
 
 type chunkBulkInserter interface {
+	DeleteByDocument(ctx context.Context, documentID uuid.UUID) error
 	BulkInsert(ctx context.Context, inputs []repository.CreateChunkInput) ([]model.Chunk, error)
 }
 
@@ -57,6 +58,10 @@ func (s *ParseChunkService) Process(ctx context.Context, documentID uuid.UUID, f
 			PageNumber: chunk.PageNumber,
 			TokenCount: int32(chunk.TokenCount),
 		})
+	}
+
+	if err := s.chunkRepo.DeleteByDocument(ctx, documentID); err != nil {
+		return nil, fmt.Errorf("delete existing chunks: %w", err)
 	}
 
 	savedChunks, err := s.chunkRepo.BulkInsert(ctx, inputs)

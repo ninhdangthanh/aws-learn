@@ -22,7 +22,15 @@ func (f *fakeParseService) Process(ctx context.Context, documentID uuid.UUID, fi
 }
 
 type fakeStatusRepo struct {
+	document model.Document
 	updates []repository.UpdateDocumentStatusInput
+}
+
+func (f *fakeStatusRepo) Get(ctx context.Context, id uuid.UUID) (model.Document, error) {
+	if f.document.ID == uuid.Nil {
+		f.document = model.Document{ID: id, Status: "pending"}
+	}
+	return f.document, nil
 }
 
 func (f *fakeStatusRepo) UpdateStatus(ctx context.Context, input repository.UpdateDocumentStatusInput) (model.Document, error) {
@@ -98,5 +106,40 @@ func TestProcessDocumentParseTaskInvalidPayload(t *testing.T) {
 	task := asynq.NewTask(tasks.TypeDocumentParse, []byte("not-json"))
 	if err := processor.ProcessDocumentParseTask(context.Background(), task); err == nil {
 		t.Fatalf("expected invalid payload error")
+	}
+}
+
+func TestProcessDocumentParseTaskSkipsAlreadyChunkedDocument(t *testing.T) {
+	documentID := uuid.New()
+	statusRepo := &fakeStatusRepo{
+		document: model.Document{
+			ID:     documentID,
+			Status: "chunked",
+		},
+	}
+
+	called := false
+	processor := NewTaskProcessor(&fakeParseService{
+		processFn: func(ctx context.Context, gotID uuid.UUID, filePath string) ([]model.Chunk, error) {
+			called = true
+			return nil, nil
+		},
+	}, statusRepo)
+
+	task, err := tasks.NewDocumentParseTask(documentID, "/tmp/demo.pdf")
+	if err != nil {
+		t.Fatalf("new task: %v", err)
+	}
+
+	if err := processor.ProcessDocumentParseTask(context.Background(), task); err != nil {
+		t.Fatalf("process task: %v", err)
+	}
+
+	if called {
+		t.Fatalf("expected parse service to be skipped for already chunked document")
+	}
+
+	if len(statusRepo.updates) != 0 {
+		t.Fatalf("expected no status updates, got %+v", statusRepo.updates)
 	}
 }
