@@ -1,5 +1,10 @@
 .PHONY: run-api run-worker build test tidy migrate-up migrate-down docker-up docker-down
 
+ifneq (,$(wildcard ./.env))
+include .env
+export
+endif
+
 GO ?= go
 COMPOSE ?= docker compose
 MIGRATE ?= $(GO) run -tags=postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
