@@ -3,12 +3,14 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"gorm.io/gorm"
 
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/model"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
@@ -103,6 +105,10 @@ func (p *TaskProcessor) ProcessDocumentParseTask(ctx context.Context, task *asyn
 
 	document, err := p.documentRepo.Get(ctx, documentID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("skipped parse document task because document no longer exists: document_id=%s", documentID)
+			return fmt.Errorf("document not found: %w", asynq.SkipRetry)
+		}
 		log.Printf("failed to load document for parse task: document_id=%s err=%v", documentID, err)
 		return fmt.Errorf("get document for parse task: %w", err)
 	}
@@ -198,6 +204,10 @@ func (p *TaskProcessor) ProcessDocumentEmbedTask(ctx context.Context, task *asyn
 
 	document, err := p.documentRepo.Get(ctx, documentID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("skipped embed document task because document no longer exists: document_id=%s", documentID)
+			return fmt.Errorf("document not found: %w", asynq.SkipRetry)
+		}
 		log.Printf("failed to load document for embed task: document_id=%s err=%v", documentID, err)
 		return fmt.Errorf("get document for embed task: %w", err)
 	}
