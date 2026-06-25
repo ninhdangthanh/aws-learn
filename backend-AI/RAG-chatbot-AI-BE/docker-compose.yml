@@ -31,8 +31,9 @@ services:
 
   asynqmon:
     image: hibiken/asynqmon:latest
+    platform: linux/amd64
     container_name: ragchat-asynqmon
-    command: ["--redis-addr=redis:6379"]
+    command: ["--redis-addr=redis:6379", "--port=8090"]
     ports:
       - "8090:8090"
     depends_on:
