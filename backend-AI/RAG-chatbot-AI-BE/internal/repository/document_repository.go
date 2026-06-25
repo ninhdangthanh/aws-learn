@@ -18,12 +18,12 @@ type CreateDocumentInput struct {
 	StoragePath *string
 	FileSize    int64
 	FileType    string
-	Status      string
+	Status      model.DocumentStatus
 }
 
 type UpdateDocumentStatusInput struct {
 	ID         uuid.UUID
-	Status     string
+	Status     model.DocumentStatus
 	ChunkCount int32
 	ErrorMsg   *string
 }
@@ -37,7 +37,7 @@ func NewDocumentRepository(db *gorm.DB) *DocumentRepository {
 func (r *DocumentRepository) Create(ctx context.Context, input CreateDocumentInput) (model.Document, error) {
 	status := input.Status
 	if status == "" {
-		status = "pending"
+		status = model.DocumentStatusPending
 	}
 
 	document := model.Document{

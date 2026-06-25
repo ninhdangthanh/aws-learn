@@ -334,10 +334,13 @@ GORM is a better fit for this repo's current pace:
 | `PORT` | API server port | `8099` |
 | `OPENAI_API_KEY` | OpenAI API key | (required) |
 | `OPENAI_EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
-| `OPENAI_LLM_MODEL` | LLM model | `gpt-4.1-mini` |
+| `OPENAI_EMBEDDING_DIMENSIONS` | Embedding vector size | `1536` |
+| `OPENAI_CHAT_MODEL` | LLM model | `gpt-4.1-mini` |
 | `POSTGRES_DSN` | PostgreSQL connection string | `postgres://user:pass@localhost:5432/ragchatbot?sslmode=disable` |
 | `REDIS_ADDR` | Redis address | `localhost:6379` |
-| `QDRANT_ADDR` | Qdrant gRPC address | `localhost:6334` |
+| `QDRANT_URL` | Qdrant HTTP URL | `http://localhost:6333` |
+| `QDRANT_HOST` | Qdrant gRPC host | `localhost` |
+| `QDRANT_GRPC_PORT` | Qdrant gRPC port | `6334` |
 | `CHUNK_SIZE` | Tokens per chunk | `500` |
 | `CHUNK_OVERLAP` | Token overlap between chunks | `100` |
 | `SEARCH_TOP_K` | Default number of results | `5` |

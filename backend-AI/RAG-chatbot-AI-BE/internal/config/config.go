@@ -31,12 +31,12 @@ type AppConfig struct {
 }
 
 type UploadConfig struct {
-	Dir             string
+	Dir              string
 	MaxFileSizeBytes int64
 }
 
 type ChunkingConfig struct {
-	ChunkSizeTokens int
+	ChunkSizeTokens    int
 	ChunkOverlapTokens int
 }
 
@@ -67,14 +67,17 @@ type RedisConfig struct {
 
 type QdrantConfig struct {
 	URL        string
+	Host       string
+	GRPCPort   int
 	APIKey     string
 	Collection string
 }
 
 type OpenAIConfig struct {
-	APIKey         string
-	EmbeddingModel string
-	ChatModel      string
+	APIKey              string
+	EmbeddingModel      string
+	EmbeddingDimensions int
+	ChatModel           string
 }
 
 func Load() (Config, error) {
@@ -129,13 +132,16 @@ func Load() (Config, error) {
 		},
 		Qdrant: QdrantConfig{
 			URL:        v.GetString("QDRANT_URL"),
+			Host:       v.GetString("QDRANT_HOST"),
+			GRPCPort:   v.GetInt("QDRANT_GRPC_PORT"),
 			APIKey:     v.GetString("QDRANT_API_KEY"),
 			Collection: v.GetString("QDRANT_COLLECTION"),
 		},
 		OpenAI: OpenAIConfig{
-			APIKey:         v.GetString("OPENAI_API_KEY"),
-			EmbeddingModel: v.GetString("OPENAI_EMBEDDING_MODEL"),
-			ChatModel:      v.GetString("OPENAI_CHAT_MODEL"),
+			APIKey:              v.GetString("OPENAI_API_KEY"),
+			EmbeddingModel:      v.GetString("OPENAI_EMBEDDING_MODEL"),
+			EmbeddingDimensions: v.GetInt("OPENAI_EMBEDDING_DIMENSIONS"),
+			ChatModel:           v.GetString("OPENAI_CHAT_MODEL"),
 		},
 	}
 
@@ -174,11 +180,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("REDIS_DB", 0)
 
 	v.SetDefault("QDRANT_URL", "http://localhost:6333")
+	v.SetDefault("QDRANT_HOST", "localhost")
+	v.SetDefault("QDRANT_GRPC_PORT", 6334)
 	v.SetDefault("QDRANT_API_KEY", "")
 	v.SetDefault("QDRANT_COLLECTION", "documents")
 
 	v.SetDefault("OPENAI_API_KEY", "")
 	v.SetDefault("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+	v.SetDefault("OPENAI_EMBEDDING_DIMENSIONS", 1536)
 	v.SetDefault("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
 }
 
@@ -225,6 +234,26 @@ func (c Config) Validate() error {
 
 	if c.Qdrant.URL == "" {
 		return fmt.Errorf("QDRANT_URL is required")
+	}
+
+	if c.Qdrant.Host == "" {
+		return fmt.Errorf("QDRANT_HOST is required")
+	}
+
+	if c.Qdrant.GRPCPort <= 0 {
+		return fmt.Errorf("QDRANT_GRPC_PORT must be greater than 0")
+	}
+
+	if c.Qdrant.Collection == "" {
+		return fmt.Errorf("QDRANT_COLLECTION is required")
+	}
+
+	if c.OpenAI.EmbeddingModel == "" {
+		return fmt.Errorf("OPENAI_EMBEDDING_MODEL is required")
+	}
+
+	if c.OpenAI.EmbeddingDimensions <= 0 {
+		return fmt.Errorf("OPENAI_EMBEDDING_DIMENSIONS must be greater than 0")
 	}
 
 	return nil

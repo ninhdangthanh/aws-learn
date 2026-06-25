@@ -71,7 +71,7 @@ func (s *ParseChunkService) Process(ctx context.Context, documentID uuid.UUID, f
 
 	if _, err := s.documentRepo.UpdateStatus(ctx, repository.UpdateDocumentStatusInput{
 		ID:         documentID,
-		Status:     "chunked",
+		Status:     model.DocumentStatusChunked,
 		ChunkCount: int32(len(savedChunks)),
 	}); err != nil {
 		return nil, fmt.Errorf("update document status: %w", err)

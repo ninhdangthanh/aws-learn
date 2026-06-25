@@ -165,7 +165,7 @@ func TestGetStatus(t *testing.T) {
 			return model.Document{
 				ID:       id,
 				Filename: "demo.pdf",
-				Status:   "pending",
+				Status:   model.DocumentStatusPending,
 			}, nil
 		},
 	}, &fakeTaskDistributor{
@@ -312,7 +312,7 @@ func TestUploadMarksFailedWhenEnqueueFails(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
 	}
 
-	if updated.Status != "failed" {
+	if updated.Status != model.DocumentStatusFailed {
 		t.Fatalf("expected failed status update, got %q", updated.Status)
 	}
 

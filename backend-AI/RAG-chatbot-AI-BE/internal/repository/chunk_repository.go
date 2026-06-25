@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -65,4 +66,21 @@ func (r *ChunkRepository) GetByDocument(ctx context.Context, documentID uuid.UUI
 		Order("chunk_index ASC").
 		Find(&chunks).Error
 	return chunks, err
+}
+
+func (r *ChunkRepository) UpdateQdrantIDs(ctx context.Context, qdrantIDsByChunkID map[uuid.UUID]uuid.UUID) error {
+	for chunkID, qdrantID := range qdrantIDsByChunkID {
+		result := r.db.WithContext(ctx).
+			Model(&model.Chunk{}).
+			Where("id = ?", chunkID).
+			Update("qdrant_id", qdrantID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("chunk not found: %s", chunkID)
+		}
+	}
+
+	return nil
 }

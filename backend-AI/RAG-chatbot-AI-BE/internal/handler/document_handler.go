@@ -87,7 +87,7 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 		StoragePath: &storedPath,
 		FileSize:    fileHeader.Size,
 		FileType:    "pdf",
-		Status:      "pending",
+		Status:      model.DocumentStatusPending,
 	})
 	if err != nil {
 		_ = os.Remove(storedPath)
@@ -100,7 +100,7 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 		message := err.Error()
 		_, _ = h.repo.UpdateStatus(c.Request.Context(), repository.UpdateDocumentStatusInput{
 			ID:       document.ID,
-			Status:   "failed",
+			Status:   model.DocumentStatusFailed,
 			ErrorMsg: &message,
 		})
 		writeError(c, http.StatusInternalServerError, "queue_error", "failed to enqueue parse job")

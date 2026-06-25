@@ -82,7 +82,7 @@ func TestParseChunkServiceProcess(t *testing.T) {
 		t.Fatalf("expected 3 chunks, got %d", len(chunks))
 	}
 
-	if documentRepo.lastUpdate.Status != "chunked" {
+	if documentRepo.lastUpdate.Status != model.DocumentStatusChunked {
 		t.Fatalf("expected document status chunked, got %q", documentRepo.lastUpdate.Status)
 	}
 

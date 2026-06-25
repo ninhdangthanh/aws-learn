@@ -8,6 +8,7 @@ import (
 
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/chunker"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/embedding"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/parser"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/postgres"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
@@ -29,6 +30,25 @@ func main() {
 
 	documentRepo := repository.NewDocumentRepository(db)
 	chunkRepo := repository.NewChunkRepository(db)
+	vectorRepo, err := repository.NewVectorRepository(cfg.Qdrant, cfg.OpenAI.EmbeddingDimensions)
+	if err != nil {
+		log.Fatalf("create qdrant repository: %v", err)
+	}
+	if err := vectorRepo.EnsureCollection(context.Background()); err != nil {
+		log.Fatalf("ensure qdrant collection: %v", err)
+	}
+
+	taskDistributor := worker.NewRedisTaskDistributor(cfg)
+	defer taskDistributor.Close()
+
+	// Gemini có embedding model riêng; nếu muốn đi theo Google/Gemini stack,
+	// xem embedding.NewGeminiClient trong internal/embedding/gemini.go.
+	embedder := embedding.NewOpenAIClient(embedding.OpenAIConfig{
+		APIKey:     cfg.OpenAI.APIKey,
+		Model:      cfg.OpenAI.EmbeddingModel,
+		Dimensions: cfg.OpenAI.EmbeddingDimensions,
+	})
+
 	parseService := service.NewParseChunkService(
 		parser.NewPDFParser(),
 		chunker.New(cfg.Chunking.ChunkSizeTokens, cfg.Chunking.ChunkOverlapTokens),
@@ -36,7 +56,12 @@ func main() {
 		chunkRepo,
 	)
 
-	taskProcessor := worker.NewTaskProcessor(parseService, documentRepo)
+	taskProcessor := worker.NewTaskProcessor(
+		parseService,
+		documentRepo,
+		worker.WithTaskDistributor(taskDistributor),
+	)
+	embeddingTaskProcessor := worker.NewEmbeddingTaskProcessor(documentRepo, chunkRepo, embedder, vectorRepo)
 	server := asynq.NewServer(
 		asynq.RedisClientOpt{
 			Addr:     cfg.Redis.Addr,
@@ -56,12 +81,14 @@ func main() {
 
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(tasks.TypeDocumentParse, taskProcessor.ProcessDocumentParseTask)
+	mux.HandleFunc(tasks.TypeDocumentEmbed, embeddingTaskProcessor.ProcessDocumentEmbedTask)
 
 	log.Printf(
-		"worker starting (redis=%s, postgres=%s:%d, queue=%s)",
+		"worker starting (redis=%s, postgres=%s:%d, qdrant_collection=%s, queue=%s)",
 		cfg.Redis.Addr,
 		cfg.Postgres.Host,
 		cfg.Postgres.Port,
+		cfg.Qdrant.Collection,
 		cfg.Asynq.QueueName,
 	)
 

@@ -9,11 +9,18 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-const TypeDocumentParse = "document:parse"
+const (
+	TypeDocumentParse = "document:parse"
+	TypeDocumentEmbed = "document:embed"
+)
 
 type DocumentParsePayload struct {
 	DocumentID string `json:"document_id"`
 	FilePath   string `json:"file_path"`
+}
+
+type DocumentEmbedPayload struct {
+	DocumentID string `json:"document_id"`
 }
 
 func NewDocumentParseTask(documentID uuid.UUID, filePath string) (*asynq.Task, error) {
@@ -26,6 +33,17 @@ func NewDocumentParseTask(documentID uuid.UUID, filePath string) (*asynq.Task, e
 	}
 
 	return asynq.NewTask(TypeDocumentParse, payload), nil
+}
+
+func NewDocumentEmbedTask(documentID uuid.UUID) (*asynq.Task, error) {
+	payload, err := json.Marshal(DocumentEmbedPayload{
+		DocumentID: documentID.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal embed payload: %w", err)
+	}
+
+	return asynq.NewTask(TypeDocumentEmbed, payload), nil
 }
 
 func ParseDocumentID(value string) (uuid.UUID, error) {

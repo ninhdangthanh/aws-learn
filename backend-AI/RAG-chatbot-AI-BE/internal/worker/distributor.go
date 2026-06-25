@@ -14,6 +14,7 @@ import (
 
 type TaskDistributor interface {
 	EnqueueParseDocument(ctx context.Context, documentID uuid.UUID, filePath string) error
+	EnqueueEmbedDocument(ctx context.Context, documentID uuid.UUID) error
 	Close() error
 }
 
@@ -63,6 +64,43 @@ func (d *RedisTaskDistributor) EnqueueParseDocument(ctx context.Context, documen
 
 	log.Printf(
 		"enqueued parse document task: id=%s type=%s document_id=%s queue=%s state=%s",
+		info.ID,
+		info.Type,
+		documentID,
+		info.Queue,
+		info.State,
+	)
+
+	return nil
+}
+
+func (d *RedisTaskDistributor) EnqueueEmbedDocument(ctx context.Context, documentID uuid.UUID) error {
+	task, err := tasks.NewDocumentEmbedTask(documentID)
+	if err != nil {
+		return err
+	}
+
+	log.Printf(
+		"enqueueing embed document task: type=%s document_id=%s queue=%s",
+		task.Type(),
+		documentID,
+		d.queueName,
+	)
+
+	info, err := d.client.EnqueueContext(ctx, task, tasks.EnqueueOptions(d.queueName)...)
+	if err != nil {
+		log.Printf(
+			"failed to enqueue embed document task: type=%s document_id=%s queue=%s err=%v",
+			task.Type(),
+			documentID,
+			d.queueName,
+			err,
+		)
+		return fmt.Errorf("enqueue embed document task: %w", err)
+	}
+
+	log.Printf(
+		"enqueued embed document task: id=%s type=%s document_id=%s queue=%s state=%s",
 		info.ID,
 		info.Type,
 		documentID,

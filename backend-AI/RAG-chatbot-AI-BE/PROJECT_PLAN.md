@@ -101,12 +101,12 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 6.1 | Embedding service | Reusable `text -> vector` OpenAI client | [ ] |
-| 6.2 | Qdrant collection init | Auto-create collection on startup | [ ] |
-| 6.3 | Vector repository | Upsert points, delete by document, search skeleton | [ ] |
-| 6.4 | Embed job | Enqueue after parse job succeeds | [ ] |
-| 6.5 | Embedding worker | Batch embed chunks and upsert vectors | [ ] |
-| 6.6 | Store vector IDs | Save Qdrant point IDs on chunk records | [ ] |
+| 6.1 | Embedding service | Reusable `text -> vector` OpenAI client | [x] |
+| 6.2 | Qdrant collection init | Auto-create collection on startup | [x] |
+| 6.3 | Vector repository | Upsert points, delete by document, search skeleton | [x] |
+| 6.4 | Embed job | Enqueue after parse job succeeds | [x] |
+| 6.5 | Embedding worker | Batch embed chunks and upsert vectors | [x] |
+| 6.6 | Store vector IDs | Save Qdrant point IDs on chunk records | [x] |
 
 Acceptance criteria:
 
