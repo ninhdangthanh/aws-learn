@@ -48,6 +48,9 @@ func main() {
 			Queues: map[string]int{
 				cfg.Asynq.QueueName: 1,
 			},
+			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+				log.Printf("asynq task failed: type=%s payload=%s err=%v", task.Type(), string(task.Payload()), err)
+			}),
 		},
 	)
 

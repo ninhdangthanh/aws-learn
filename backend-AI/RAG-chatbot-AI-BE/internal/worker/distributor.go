@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
@@ -40,9 +41,34 @@ func (d *RedisTaskDistributor) EnqueueParseDocument(ctx context.Context, documen
 		return err
 	}
 
-	if _, err := d.client.EnqueueContext(ctx, task, tasks.EnqueueOptions(d.queueName)...); err != nil {
+	log.Printf(
+		"enqueueing parse document task: type=%s document_id=%s file_path=%s queue=%s",
+		task.Type(),
+		documentID,
+		filePath,
+		d.queueName,
+	)
+
+	info, err := d.client.EnqueueContext(ctx, task, tasks.EnqueueOptions(d.queueName)...)
+	if err != nil {
+		log.Printf(
+			"failed to enqueue parse document task: type=%s document_id=%s queue=%s err=%v",
+			task.Type(),
+			documentID,
+			d.queueName,
+			err,
+		)
 		return fmt.Errorf("enqueue parse document task: %w", err)
 	}
+
+	log.Printf(
+		"enqueued parse document task: id=%s type=%s document_id=%s queue=%s state=%s",
+		info.ID,
+		info.Type,
+		documentID,
+		info.Queue,
+		info.State,
+	)
 
 	return nil
 }
