@@ -29,6 +29,16 @@ services:
       timeout: 5s
       retries: 5
 
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    container_name: ragchat-asynqmon
+    command: ["--redis-addr=redis:6379"]
+    ports:
+      - "8090:8090"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: ragchat-qdrant
