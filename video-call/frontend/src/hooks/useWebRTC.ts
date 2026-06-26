@@ -1,16 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { SignalMessage, CallStatus } from '../types'
-
-// ICE servers for NAT traversal - WebRTC uses UDP for media transport
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-  // Prefer UDP transport for lower latency video calls
-  iceTransportPolicy: 'all',
-}
+import { WEBRTC_CONFIG } from '../config'
 
 interface UseWebRTCReturn {
   localStream: MediaStream | null
@@ -70,7 +60,7 @@ export function useWebRTC(
   }, [])
 
   const createPeerConnection = useCallback((targetUserId: number) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS)
+    const pc = new RTCPeerConnection(WEBRTC_CONFIG)
 
     // Add local tracks to the peer connection
     if (localStreamRef.current) {
