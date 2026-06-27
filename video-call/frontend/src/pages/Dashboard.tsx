@@ -25,8 +25,10 @@ function Dashboard() {
 
   const otherUsers = onlineUsers.filter((u) => u.id !== user!.id)
 
+  const dashboardClassName = `dashboard ${callStatus !== 'idle' ? 'dashboard--in-call' : ''}`
+
   return (
-    <div className="dashboard">
+    <div className={dashboardClassName}>
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
