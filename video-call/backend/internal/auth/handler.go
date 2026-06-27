@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -13,7 +14,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("video-call-secret-key-change-in-production")
+var jwtSecret = []byte(getJWTSecretValue())
+
+func getJWTSecretValue() string {
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		return secret
+	}
+
+	return "video-call-secret-key-change-in-production"
+}
 
 type Handler struct {
 	db *sql.DB

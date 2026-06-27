@@ -37,6 +37,14 @@ make up
 # Backend  → http://localhost:8080
 ```
 
+## Docs
+
+- [AWS deployment guide](docs/AWS_DEPLOYMENT_GUIDE.md)
+- [Route 53, ACM, and ALB notes](docs/route53_acm_alb_notes.md)
+- [WebRTC architecture notes](docs/WEBRTC_ARCHITECTURE_NOTES.md)
+- [AWS ECS architecture questions](docs/aws_ecs_architecture_questions.md)
+- [Original implementation plan](docs/plan.md)
+
 ## Testing on Local WiFi
 
 To test video calls between two different devices (e.g., your laptop and your phone):

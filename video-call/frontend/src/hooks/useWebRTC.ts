@@ -1,17 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { SignalMessage, CallStatus } from '../types'
+import { WEBRTC_CONFIG } from '../config'
 
-// ICE servers for NAT traversal - WebRTC uses UDP for media transport
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-  // Prefer UDP transport for lower latency video calls
-  iceTransportPolicy: 'all',
-}
-
+// deploy 1
 interface UseWebRTCReturn {
   localStream: MediaStream | null
   remoteStream: MediaStream | null
@@ -25,12 +16,12 @@ interface UseWebRTCReturn {
   toggleVideo: () => void
   audioEnabled: boolean
   videoEnabled: boolean
-}
+} 
 
 export function useWebRTC(
   userId: number,
   sendMessage: (msg: SignalMessage) => void,
-  lastMessage: SignalMessage | null
+  signalMessages: SignalMessage[]
 ): UseWebRTCReturn {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -44,14 +35,17 @@ export function useWebRTC(
   const [videoEnabled, setVideoEnabled] = useState(true)
 
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
+  const pendingOfferRef = useRef<SignalMessage | null>(null)
+  const processedMessageCountRef = useRef(0)
   const targetUserRef = useRef<number>(0)
 
   const getMediaStream = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 },
           facingMode: 'user',
         },
         audio: {
@@ -69,8 +63,42 @@ export function useWebRTC(
     }
   }, [])
 
+  const endCall = useCallback(() => {
+    if (targetUserRef.current) {
+      sendMessage({
+        type: 'call-ended',
+        from: userId,
+        to: targetUserRef.current,
+        payload: null,
+        fromName: '',
+      })
+    }
+
+    // Cleanup
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close()
+      peerConnectionRef.current = null
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop())
+      localStreamRef.current = null
+    }
+
+    remoteStreamRef.current = null
+    setLocalStream(null)
+    setRemoteStream(null)
+    setCallStatus('idle')
+    setIncomingCall(null)
+    targetUserRef.current = 0
+    pendingCandidatesRef.current = []
+    pendingOfferRef.current = null
+    setAudioEnabled(true)
+    setVideoEnabled(true)
+  }, [userId, sendMessage])
+
   const createPeerConnection = useCallback((targetUserId: number) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS)
+    const pc = new RTCPeerConnection(WEBRTC_CONFIG)
 
     // Add local tracks to the peer connection
     if (localStreamRef.current) {
@@ -115,7 +143,7 @@ export function useWebRTC(
 
     peerConnectionRef.current = pc
     return pc
-  }, [userId, sendMessage])
+  }, [userId, sendMessage, endCall])
 
   const startCall = useCallback(async (targetUserId: number) => {
     targetUserRef.current = targetUserId
@@ -155,7 +183,23 @@ export function useWebRTC(
     await getMediaStream()
     const pc = createPeerConnection(incomingCall.from)
 
-    // Process any pending ICE candidates
+    if (pendingOfferRef.current) {
+      await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current.payload))
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+
+      sendMessage({
+        type: 'answer',
+        from: userId,
+        to: pendingOfferRef.current.from,
+        payload: answer,
+        fromName: '',
+      })
+
+      pendingOfferRef.current = null
+    }
+
+    // Process any pending ICE candidates after the remote description is ready.
     for (const candidate of pendingCandidatesRef.current) {
       await pc.addIceCandidate(new RTCIceCandidate(candidate))
     }
@@ -186,40 +230,8 @@ export function useWebRTC(
     setIncomingCall(null)
     setCallStatus('idle')
     pendingCandidatesRef.current = []
+    pendingOfferRef.current = null
   }, [incomingCall, userId, sendMessage])
-
-  const endCall = useCallback(() => {
-    if (targetUserRef.current) {
-      sendMessage({
-        type: 'call-ended',
-        from: userId,
-        to: targetUserRef.current,
-        payload: null,
-        fromName: '',
-      })
-    }
-
-    // Cleanup
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close()
-      peerConnectionRef.current = null
-    }
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop())
-      localStreamRef.current = null
-    }
-
-    remoteStreamRef.current = null
-    setLocalStream(null)
-    setRemoteStream(null)
-    setCallStatus('idle')
-    setIncomingCall(null)
-    targetUserRef.current = 0
-    pendingCandidatesRef.current = []
-    setAudioEnabled(true)
-    setVideoEnabled(true)
-  }, [userId, sendMessage])
 
   const toggleAudio = useCallback(() => {
     if (localStreamRef.current) {
@@ -243,12 +255,15 @@ export function useWebRTC(
 
   // Handle incoming signaling messages
   useEffect(() => {
-    if (!lastMessage) return
+    if (processedMessageCountRef.current >= signalMessages.length) return
 
-    const handleMessage = async () => {
-      switch (lastMessage.type) {
+    const newMessages = signalMessages.slice(processedMessageCountRef.current)
+    processedMessageCountRef.current = signalMessages.length
+
+    const handleMessage = async (message: SignalMessage) => {
+      switch (message.type) {
         case 'call':
-          setIncomingCall({ from: lastMessage.from, fromName: lastMessage.fromName })
+          setIncomingCall({ from: message.from, fromName: message.fromName })
           setCallStatus('receiving')
           break
 
@@ -268,17 +283,19 @@ export function useWebRTC(
         case 'offer': {
           const pc = peerConnectionRef.current
           if (pc) {
-            await pc.setRemoteDescription(new RTCSessionDescription(lastMessage.payload))
+            await pc.setRemoteDescription(new RTCSessionDescription(message.payload))
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
 
             sendMessage({
               type: 'answer',
               from: userId,
-              to: lastMessage.from,
+              to: message.from,
               payload: answer,
               fromName: '',
             })
+          } else {
+            pendingOfferRef.current = message
           }
           break
         }
@@ -286,7 +303,7 @@ export function useWebRTC(
         case 'answer': {
           const pc = peerConnectionRef.current
           if (pc) {
-            await pc.setRemoteDescription(new RTCSessionDescription(lastMessage.payload))
+            await pc.setRemoteDescription(new RTCSessionDescription(message.payload))
           }
           break
         }
@@ -294,17 +311,23 @@ export function useWebRTC(
         case 'ice-candidate': {
           const pc = peerConnectionRef.current
           if (pc && pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(lastMessage.payload))
+            await pc.addIceCandidate(new RTCIceCandidate(message.payload))
           } else {
-            pendingCandidatesRef.current.push(lastMessage.payload)
+            pendingCandidatesRef.current.push(message.payload)
           }
           break
         }
       }
     }
 
-    handleMessage().catch(console.error)
-  }, [lastMessage, userId, sendMessage, endCall])
+    const handleMessages = async () => {
+      for (const message of newMessages) {
+        await handleMessage(message)
+      }
+    }
+
+    handleMessages().catch(console.error)
+  }, [signalMessages, userId, sendMessage, endCall])
 
   return {
     localStream,
