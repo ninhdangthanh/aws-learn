@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ap-southeast-1
   ECR_REPOSITORY_BE: videocall-backend
   ECR_REPOSITORY_FE: videocall-frontend
   ECS_SERVICE: videocall-service

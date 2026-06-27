@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
 
 env:
-  AWS_REGION: us-east-1                   # set this to your preferred AWS region
+  AWS_REGION: ap-southeast-1                   # set this to your preferred AWS region
   ECR_REPOSITORY_BE: videocall-backend    # set this to your backend ECR repository name
   ECR_REPOSITORY_FE: videocall-frontend   # set this to your frontend ECR repository name
   ECS_SERVICE: videocall-service          # set this to your ECS service name
