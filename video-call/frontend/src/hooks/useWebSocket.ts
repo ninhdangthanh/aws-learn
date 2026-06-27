@@ -5,14 +5,14 @@ import { SignalMessage, OnlineUser } from '../types'
 interface UseWebSocketReturn {
   sendMessage: (msg: SignalMessage) => void
   onlineUsers: OnlineUser[]
-  lastMessage: SignalMessage | null
+  signalMessages: SignalMessage[]
   connected: boolean
 }
 
 export function useWebSocket(token: string | null): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null)
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
-  const [lastMessage, setLastMessage] = useState<SignalMessage | null>(null)
+  const [signalMessages, setSignalMessages] = useState<SignalMessage[]>([])
   const [connected, setConnected] = useState(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
@@ -34,7 +34,7 @@ export function useWebSocket(token: string | null): UseWebSocketReturn {
         if (msg.type === 'users-list') {
           setOnlineUsers(msg.payload)
         } else {
-          setLastMessage(msg)
+          setSignalMessages((messages) => [...messages, msg])
         }
       } catch (err) {
         console.error('Failed to parse message:', err)
@@ -75,5 +75,5 @@ export function useWebSocket(token: string | null): UseWebSocketReturn {
     }
   }, [])
 
-  return { sendMessage, onlineUsers, lastMessage, connected }
+  return { sendMessage, onlineUsers, signalMessages, connected }
 }
