@@ -1,36 +1,36 @@
-# Huong Dan Deploy Video Call Len AWS ECS
+# Hướng Dẫn Deploy Video Call Lên AWS ECS
 
-Guide nay dung cho app `video-call/` trong repo `aws-learn`.
+Guide này dùng cho app `video-call/` trong repo `aws-learn`.
 
-Muc tieu deploy:
+Mục tiêu deploy:
 
-- Frontend React/Vite chay trong container Nginx.
-- Backend Go chay trong container rieng.
-- ECS Fargate chay ca 2 container trong cung 1 task.
+- Frontend React/Vite chạy trong container Nginx.
+- Backend Go chạy trong container riêng.
+- ECS Fargate chạy cả 2 container trong cùng 1 task.
 - ALB public internet qua HTTPS.
-- API dung `https://your-domain.com/api/...`.
-- WebSocket signaling dung `wss://your-domain.com/ws`.
-- WebRTC media dung STUN/TURN.
+- API dùng `https://your-domain.com/api/...`.
+- WebSocket signaling dùng `wss://your-domain.com/ws`.
+- WebRTC media dùng STUN/TURN.
 
-## 1. Luu y Quan Trong Ve Video Call
+## 1. Lưu Ý Quan Trọng Về Video Call
 
-Browser chi cho phep camera/microphone tren:
+Browser chỉ cho phép camera/microphone trên:
 
-- `localhost`, hoac
-- site co HTTPS hop le.
+- `localhost`, hoặc
+- site có HTTPS hợp lệ.
 
-Vi vay khi deploy that, app phai duoc mo bang HTTPS. Khi page da chay tren HTTPS, WebSocket cung phai chay bang WSS, khong duoc dung `ws://`.
+Vì vậy khi deploy thật, app phải được mở bằng HTTPS. Khi page đã chạy trên HTTPS, WebSocket cũng phải chạy bằng WSS, không được dùng `ws://`.
 
-Code hien tai da duoc chinh de production tu dong dung same-origin:
+Code hiện tại đã được chỉnh để production tự động dùng same-origin:
 
-- API: `window.location.origin`, vi du `https://call.example.com`
-- WS: tu dong chon `wss://call.example.com/ws` neu page dang o HTTPS
+- API: `window.location.origin`, ví dụ `https://call.example.com`.
+- WS: tự động chọn `wss://call.example.com/ws` nếu page đang ở HTTPS.
 
-Ban khong can sua `frontend/src/config.ts` moi lan doi domain.
+Bạn không cần sửa `frontend/src/config.ts` mỗi lần đổi domain.
 
-## 2. Kien Truc ECS
+## 2. Kiến Trúc ECS
 
-```
+```text
 Internet
   |
   v
@@ -57,20 +57,20 @@ Task: videocall-task
         |-- SQLite database path /app/videocall.db
 ```
 
-Luu y: ALB chi can route vao frontend container port 80. Nginx trong frontend se proxy `/api` va `/ws` sang backend trong cung task.
+Lưu ý: ALB chỉ cần route vào frontend container port 80. Nginx trong frontend sẽ proxy `/api` và `/ws` sang backend trong cùng task.
 
-## 3. Chuan Bi
+## 3. Chuẩn Bị
 
-Can co:
+Cần có:
 
 - AWS account.
-- AWS CLI da login/configure.
-- GitHub repo chua code.
-- Domain rieng, vi HTTPS cho camera/mic nen co domain that.
+- AWS CLI đã login/configure.
+- GitHub repo chứa code.
+- Domain riêng, vì HTTPS cho camera/mic nên cần domain thật.
 - ACM certificate cho domain.
-- TURN server hoac TURN provider neu muon video call on dinh tren nhieu loai mang.
+- TURN server hoặc TURN provider nếu muốn video call ổn định trên nhiều loại mạng.
 
-Vi du trong guide:
+Ví dụ trong guide:
 
 ```bash
 AWS_REGION=us-east-1
@@ -78,42 +78,42 @@ ACCOUNT_ID=123456789012
 DOMAIN=call.example.com
 ```
 
-Hay thay cac gia tri nay bang cua ban.
+Hãy thay các giá trị này bằng của bạn.
 
-## 4. Tao ECR Repositories
+## 4. Tạo ECR Repositories
 
-Tao 2 repositories:
+Tạo 2 repositories:
 
 ```bash
 aws ecr create-repository --repository-name videocall-backend --region us-east-1
 aws ecr create-repository --repository-name videocall-frontend --region us-east-1
 ```
 
-Sau do image se co dang:
+Sau đó image sẽ có dạng:
 
 ```text
 <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/videocall-backend
 <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/videocall-frontend
 ```
 
-## 5. Tao CloudWatch Log Group
+## 5. Tạo CloudWatch Log Group
 
 ```bash
 aws logs create-log-group --log-group-name /ecs/videocall --region us-east-1
 ```
 
-Neu log group da ton tai thi co the bo qua loi `ResourceAlreadyExistsException`.
+Nếu log group đã tồn tại thì có thể bỏ qua lỗi `ResourceAlreadyExistsException`.
 
-## 6. Tao Runtime Secrets Trong SSM
+## 6. Tạo Runtime Secrets Trong SSM
 
-Task definition dang doc cac bien bi mat tu AWS Systems Manager Parameter Store:
+Task definition đang đọc các biến bí mật từ AWS Systems Manager Parameter Store:
 
 - `/videocall/JWT_SECRET`
 - `/videocall/TURN_URLS`
 - `/videocall/TURN_USERNAME`
 - `/videocall/TURN_CREDENTIAL`
 
-Tao JWT secret:
+Tạo JWT secret:
 
 ```bash
 aws ssm put-parameter \
@@ -123,7 +123,7 @@ aws ssm put-parameter \
   --region us-east-1
 ```
 
-Neu da co TURN server/provider:
+Nếu đã có TURN server/provider:
 
 ```bash
 aws ssm put-parameter \
@@ -145,7 +145,7 @@ aws ssm put-parameter \
   --region us-east-1
 ```
 
-Neu chua co TURN va chi muon deploy thu truoc, tao 3 parameter TURN bang mot dau cach:
+Nếu chưa có TURN và chỉ muốn deploy thử trước, tạo 3 parameter TURN bằng một dấu cách:
 
 ```bash
 aws ssm put-parameter --name /videocall/TURN_URLS --type SecureString --value " " --region us-east-1
@@ -153,19 +153,19 @@ aws ssm put-parameter --name /videocall/TURN_USERNAME --type SecureString --valu
 aws ssm put-parameter --name /videocall/TURN_CREDENTIAL --type SecureString --value " " --region us-east-1
 ```
 
-App se trim gia tri nay thanh rong. Tuy nhien, khong co TURN thi video call co the fail tren 4G/5G, WiFi cong ty, hoac NAT chat.
+App sẽ trim giá trị này thành rỗng. Tuy nhiên, không có TURN thì video call có thể fail trên 4G/5G, WiFi công ty, hoặc NAT chặt.
 
 ## 7. IAM Role Cho ECS Task
 
-Can co role `ecsTaskExecutionRole`.
+Cần có role `ecsTaskExecutionRole`.
 
-Role nay can policy AWS managed:
+Role này cần policy AWS managed:
 
 ```text
 AmazonECSTaskExecutionRolePolicy
 ```
 
-Them inline policy de ECS doc SSM parameters:
+Thêm inline policy để ECS đọc SSM parameters:
 
 ```json
 {
@@ -180,41 +180,41 @@ Them inline policy de ECS doc SSM parameters:
 }
 ```
 
-Neu SSM SecureString dung customer managed KMS key, them quyen `kms:Decrypt` cho key do.
+Nếu SSM SecureString dùng customer managed KMS key, thêm quyền `kms:Decrypt` cho key đó.
 
-Sau do copy ARN cua role, vi du:
+Sau đó copy ARN của role, ví dụ:
 
 ```text
 arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole
 ```
 
-## 8. Sua Task Definition
+## 8. Sửa Task Definition
 
-Mo file:
+Mở file:
 
 ```text
 video-call/.aws/task-definition.json
 ```
 
-Can thay:
+Cần thay:
 
-- `<ACCOUNT_ID>` bang AWS account ID cua ban.
-- `us-east-1` bang region cua ban neu khac.
-- `executionRoleArn` dung ARN cua `ecsTaskExecutionRole`.
+- `<ACCOUNT_ID>` bằng AWS account ID của bạn.
+- `us-east-1` bằng region của bạn nếu khác.
+- `executionRoleArn` dùng ARN của `ecsTaskExecutionRole`.
 
-Dang mac dinh:
+Đang mặc định:
 
 ```json
 "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole"
 ```
 
-Neu deploy region khac, sua ca:
+Nếu deploy region khác, sửa cả:
 
 - `awslogs-region`
 - SSM parameter ARN trong `secrets`
 - GitHub Actions `AWS_REGION`
 
-## 9. Tao ECS Cluster
+## 9. Tạo ECS Cluster
 
 ```bash
 aws ecs create-cluster \
@@ -222,11 +222,11 @@ aws ecs create-cluster \
   --region us-east-1
 ```
 
-Dung Fargate, khong can tao EC2 instance cho ECS.
+Dùng Fargate, không cần tạo EC2 instance cho ECS.
 
-## 10. Tao ACM Certificate Cho HTTPS
+## 10. Tạo ACM Certificate Cho HTTPS
 
-Vao AWS Certificate Manager trong cung region voi ALB, vi du `us-east-1`.
+Vào AWS Certificate Manager trong cùng region với ALB, ví dụ `us-east-1`.
 
 Request public certificate cho domain:
 
@@ -234,58 +234,58 @@ Request public certificate cho domain:
 call.example.com
 ```
 
-Validate bang DNS. Neu dung Route 53, AWS co nut tao DNS record tu dong.
+Validate bằng DNS. Nếu dùng Route 53, AWS có nút tạo DNS record tự động.
 
-Chi tiep tuc sau khi certificate status la `Issued`.
+Chỉ tiếp tục sau khi certificate status là `Issued`.
 
-## 11. Tao Security Groups
+## 11. Tạo Security Groups
 
-Can 2 security groups:
+Cần 2 security groups:
 
 ### ALB Security Group
 
 Inbound:
 
-- TCP 80 tu `0.0.0.0/0`
-- TCP 443 tu `0.0.0.0/0`
+- TCP 80 từ `0.0.0.0/0`
+- TCP 443 từ `0.0.0.0/0`
 
 Outbound:
 
-- Cho phep ra ECS service security group port 80.
+- Cho phép ra ECS service security group port 80.
 
 ### ECS Service Security Group
 
 Inbound:
 
-- TCP 80 tu ALB security group.
+- TCP 80 từ ALB security group.
 
-Khong can public port 8080 cua backend ra internet. Backend chi duoc frontend Nginx proxy noi bo trong task.
+Không cần public port 8080 của backend ra internet. Backend chỉ được frontend Nginx proxy nội bộ trong task.
 
-## 12. Tao Target Group
+## 12. Tạo Target Group
 
-Tao target group cho frontend:
+Tạo target group cho frontend:
 
 - Target type: `IP`
 - Protocol: `HTTP`
 - Port: `80`
-- VPC: VPC ban se chay ECS
+- VPC: VPC bạn sẽ chạy ECS
 - Health check path: `/`
 
-Dat ten vi du:
+Đặt tên ví dụ:
 
 ```text
 videocall-frontend-tg
 ```
 
-## 13. Tao Application Load Balancer
+## 13. Tạo Application Load Balancer
 
-Tao ALB internet-facing:
+Tạo ALB internet-facing:
 
 - Scheme: internet-facing
 - Listeners:
   - HTTP 80
   - HTTPS 443
-- Subnets: chon it nhat 2 public subnets
+- Subnets: chọn ít nhất 2 public subnets
 - Security group: ALB security group
 
 Listener rules:
@@ -293,24 +293,24 @@ Listener rules:
 - HTTP 80: redirect sang HTTPS 443
 - HTTPS 443: forward sang target group `videocall-frontend-tg`
 
-Gan ACM certificate vao listener HTTPS 443.
+Gắn ACM certificate vào listener HTTPS 443.
 
-## 14. Tro Domain Ve ALB
+## 14. Trỏ Domain Về ALB
 
-Neu dung Route 53:
+Nếu dùng Route 53:
 
-- Tao `A` record alias cho `call.example.com`
-- Alias target: ALB vua tao
+- Tạo `A` record alias cho `call.example.com`.
+- Alias target: ALB vừa tạo.
 
-Neu dung DNS provider khac:
+Nếu dùng DNS provider khác:
 
-- Tao `CNAME` tu `call.example.com` ve DNS name cua ALB
+- Tạo `CNAME` từ `call.example.com` về DNS name của ALB.
 
-Cho DNS propagate xong, domain phai mo duoc qua HTTPS.
+Chờ DNS propagate xong, domain phải mở được qua HTTPS.
 
-## 15. Register Task Definition Lan Dau
+## 15. Register Task Definition Lần Đầu
 
-Tu repo root `aws-learn`, chay:
+Từ repo root `aws-learn`, chạy:
 
 ```bash
 aws ecs register-task-definition \
@@ -318,60 +318,60 @@ aws ecs register-task-definition \
   --region us-east-1
 ```
 
-Luu y: image trong file ban dau la placeholder `<IMAGE_BE>` va `<IMAGE_FE>`. Neu AWS khong chap nhan placeholder khi register lan dau, hay push image truoc bang GitHub Actions/manual build, sau do register task definition co image ECR that.
+Lưu ý: image trong file ban đầu là placeholder `<IMAGE_BE>` và `<IMAGE_FE>`. Nếu AWS không chấp nhận placeholder khi register lần đầu, hãy push image trước bằng GitHub Actions/manual build, sau đó register task definition có image ECR thật.
 
-## 16. Tao ECS Service
+## 16. Tạo ECS Service
 
-Tao service trong cluster `videocall-cluster`:
+Tạo service trong cluster `videocall-cluster`:
 
 - Launch type: Fargate
 - Task definition: `videocall-task`
 - Service name: `videocall-service`
 - Desired tasks: `1`
-- VPC/subnets: chon private subnets neu co NAT, hoac public subnets neu muon don gian luc dau
-- Security group: ECS service security group
+- VPC/subnets: chọn private subnets nếu có NAT, hoặc public subnets nếu muốn đơn giản lúc đầu.
+- Security group: ECS service security group.
 - Load balancer:
   - Type: Application Load Balancer
   - Container: `frontend`
   - Container port: `80`
   - Target group: `videocall-frontend-tg`
 
-Neu dung private subnets, task can ra internet de pull image ECR va ghi logs CloudWatch. Cach don gian la NAT Gateway. Cach toi uu hon la dung VPC endpoints cho ECR, CloudWatch Logs, SSM.
+Nếu dùng private subnets, task cần ra internet để pull image ECR và ghi logs CloudWatch. Cách đơn giản là NAT Gateway. Cách tối ưu hơn là dùng VPC endpoints cho ECR, CloudWatch Logs, SSM.
 
 ## 17. GitHub Actions Deploy
 
-Workflow deploy nam o:
+Workflow deploy nằm ở:
 
 ```text
 .github/workflows/video-call-deploy.yml
 ```
 
-Trong GitHub repo, vao Settings -> Secrets and variables -> Actions, tao:
+Trong GitHub repo, vào Settings -> Secrets and variables -> Actions, tạo:
 
 ```text
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
 
-User/role cua key nay can quyen:
+User/role của key này cần quyền:
 
 - Login/push ECR.
 - Register task definition.
 - Update ECS service.
 - Pass role `ecsTaskExecutionRole`.
 
-Khi push vao branch `main`, workflow se:
+Khi push vào branch `main`, workflow sẽ:
 
-1. Build backend image tu `video-call/backend`.
-2. Push image len ECR `videocall-backend`.
-3. Build frontend image tu `video-call/frontend`.
-4. Push image len ECR `videocall-frontend`.
-5. Render task definition voi image moi.
+1. Build backend image từ `video-call/backend`.
+2. Push image lên ECR `videocall-backend`.
+3. Build frontend image từ `video-call/frontend`.
+4. Push image lên ECR `videocall-frontend`.
+5. Render task definition với image mới.
 6. Deploy ECS service.
 
-Co the chay manual tu tab GitHub Actions vi workflow co `workflow_dispatch`.
+Có thể chạy manual từ tab GitHub Actions vì workflow có `workflow_dispatch`.
 
-## 18. HTTPS Va WSS Hoat Dong Nhu The Nao
+## 18. HTTPS Và WSS Hoạt Động Như Thế Nào
 
 Production request flow:
 
@@ -400,22 +400,22 @@ Browser: wss://call.example.com/ws?token=...
   -> backend:8080/ws
 ```
 
-ALB terminate TLS o ngoai. Ben trong ECS, Nginx proxy sang backend bang HTTP noi bo la duoc.
+ALB terminate TLS ở ngoài. Bên trong ECS, Nginx proxy sang backend bằng HTTP nội bộ là được.
 
-Khong can mo port 8080 public.
+Không cần mở port 8080 public.
 
 ## 19. TURN Cho WebRTC
 
-WebSocket chi dung de signaling. Video/audio that su di qua WebRTC peer connection.
+WebSocket chỉ dùng để signaling. Video/audio thật sự đi qua WebRTC peer connection.
 
-STUN giup peer tim public address, nhung khong du cho moi network. TURN lam relay khi P2P khong ket noi duoc.
+STUN giúp peer tìm public address, nhưng không đủ cho mọi network. TURN làm relay khi P2P không kết nối được.
 
-Nen dung TURN neu app dung that:
+Nên dùng TURN nếu app dùng thật:
 
-- EC2 chay `coturn`, hoac
+- EC2 chạy `coturn`, hoặc
 - Managed TURN provider.
 
-Thong tin TURN duoc inject vao frontend container tu SSM qua:
+Thông tin TURN được inject vào frontend container từ SSM qua:
 
 ```text
 TURN_URLS
@@ -429,108 +429,108 @@ Frontend container generate file runtime:
 /usr/share/nginx/html/env-config.js
 ```
 
-React app doc file nay khi browser load page.
+React app đọc file này khi browser load page.
 
 ## 20. SQLite Persistence
 
-Hien backend dung SQLite:
+Hiện backend dùng SQLite:
 
 ```text
 DB_PATH=/app/videocall.db
 ```
 
-Trong Fargate, filesystem cua task khong ben vung. Neu task restart hoac redeploy, data co the mat.
+Trong Fargate, filesystem của task không bền vững. Nếu task restart hoặc redeploy, data có thể mất.
 
-Cho demo: co the chap nhan.
+Cho demo: có thể chấp nhận.
 
 Cho production:
 
-- Dung EFS mount vao `/app`, hoac
-- Chuyen database sang RDS PostgreSQL/MySQL.
+- Dùng EFS mount vào `/app`, hoặc
+- Chuyển database sang RDS PostgreSQL/MySQL.
 
-Khuyen nghi production: dung RDS.
+Khuyến nghị production: dùng RDS.
 
 ## 21. Checklist Sau Khi Deploy
 
-Kiem tra ECS:
+Kiểm tra ECS:
 
 - Service `videocall-service` stable.
-- Co 1 running task.
-- Target group health la healthy.
-- CloudWatch logs khong co loi.
+- Có 1 running task.
+- Target group health là healthy.
+- CloudWatch logs không có lỗi.
 
-Kiem tra browser:
+Kiểm tra browser:
 
-- Mo `https://call.example.com`.
-- Dang ky/dang nhap duoc.
-- DevTools Network thay API goi `https://...`.
-- WebSocket ket noi `wss://.../ws?token=...`.
-- Browser khong bao loi mixed content.
-- Browser hoi permission camera/mic.
-- Hai account online thay nhau trong user list.
-- Goi video tren 2 thiet bi khac nhau.
+- Mở `https://call.example.com`.
+- Đăng ký/đăng nhập được.
+- DevTools Network thấy API gọi `https://...`.
+- WebSocket kết nối `wss://.../ws?token=...`.
+- Browser không báo lỗi mixed content.
+- Browser hỏi permission camera/mic.
+- Hai account online thấy nhau trong user list.
+- Gọi video trên 2 thiết bị khác nhau.
 
-Neu local dev:
+Nếu local dev:
 
-- Frontend Vite van dung `http://localhost:5173`.
-- Backend van dung `http://localhost:8080`.
-- WebSocket local van dung `ws://localhost:8080/ws`.
+- Frontend Vite vẫn dùng `http://localhost:5173`.
+- Backend vẫn dùng `http://localhost:8080`.
+- WebSocket local vẫn dùng `ws://localhost:8080/ws`.
 
-## 22. Loi Thuong Gap
+## 22. Lỗi Thường Gặp
 
-### Camera/mic khong hien permission
+### Camera/mic không hiện permission
 
-Nguyen nhan hay gap:
+Nguyên nhân hay gặp:
 
-- Dang mo app bang HTTP public, khong phai HTTPS.
-- Certificate sai hoac domain khong trusted.
+- Đang mở app bằng HTTP public, không phải HTTPS.
+- Certificate sai hoặc domain không trusted.
 
 ### WebSocket fail
 
-Kiem tra:
+Kiểm tra:
 
-- Browser dang connect `wss://your-domain/ws`.
-- ALB listener HTTPS forward dung target group.
-- Nginx co proxy `/ws` voi Upgrade headers.
-- Backend logs co request `/ws`.
+- Browser đang connect `wss://your-domain/ws`.
+- ALB listener HTTPS forward đúng target group.
+- Nginx có proxy `/ws` với Upgrade headers.
+- Backend logs có request `/ws`.
 
-### API bi mixed content
+### API bị mixed content
 
-Neu page la HTTPS ma API goi HTTP, browser se block. Code hien tai da tranh loi nay bang same-origin config. Kiem tra `/env-config.js` neu ban override `API_URL`.
+Nếu page là HTTPS mà API gọi HTTP, browser sẽ block. Code hiện tại đã tránh lỗi này bằng same-origin config. Kiểm tra `/env-config.js` nếu bạn override `API_URL`.
 
-### Call duoc nhung khong co video/audio remote
+### Call được nhưng không có video/audio remote
 
-Kiem tra:
+Kiểm tra:
 
 - STUN/TURN config.
 - ICE connection state trong browser console.
-- Network co chan UDP khong.
-- Thu them TURN relay.
+- Network có chặn UDP không.
+- Thử thêm TURN relay.
 
-### ECS task khong start
+### ECS task không start
 
-Kiem tra:
+Kiểm tra:
 
-- Image ECR co ton tai.
-- `ecsTaskExecutionRole` co quyen pull ECR va doc SSM.
-- SSM parameter ARN dung region/account.
-- CloudWatch log group `/ecs/videocall` da ton tai.
+- Image ECR có tồn tại.
+- `ecsTaskExecutionRole` có quyền pull ECR và đọc SSM.
+- SSM parameter ARN đúng region/account.
+- CloudWatch log group `/ecs/videocall` đã tồn tại.
 
-## 23. Thu Tu Lam Nhanh
+## 23. Thứ Tự Làm Nhanh
 
-Lam theo thu tu nay de it loi:
+Làm theo thứ tự này để ít lỗi:
 
-1. Tao ECR repositories.
-2. Tao CloudWatch log group.
-3. Tao SSM parameters.
-4. Sua `<ACCOUNT_ID>` va region trong `video-call/.aws/task-definition.json`.
-5. Tao/kiem tra `ecsTaskExecutionRole`.
-6. Tao ECS cluster.
-7. Tao ACM certificate.
-8. Tao ALB security group va ECS security group.
-9. Tao target group.
-10. Tao ALB voi HTTPS 443 va redirect HTTP 80.
-11. Tro domain ve ALB.
-12. Push code len GitHub `main` de workflow build/push image.
-13. Tao ECS service gan voi target group.
-14. Mo `https://your-domain` va test `wss://.../ws`.
+1. Tạo ECR repositories.
+2. Tạo CloudWatch log group.
+3. Tạo SSM parameters.
+4. Sửa `<ACCOUNT_ID>` và region trong `video-call/.aws/task-definition.json`.
+5. Tạo/kiểm tra `ecsTaskExecutionRole`.
+6. Tạo ECS cluster.
+7. Tạo ACM certificate.
+8. Tạo ALB security group và ECS security group.
+9. Tạo target group.
+10. Tạo ALB với HTTPS 443 và redirect HTTP 80.
+11. Trỏ domain về ALB.
+12. Push code lên GitHub `main` để workflow build/push image.
+13. Tạo ECS service gắn với target group.
+14. Mở `https://your-domain` và test `wss://.../ws`.
