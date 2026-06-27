@@ -6,13 +6,6 @@ Checklist triển khai 7 ngày: [docs/mvp-7-day-plan.md](./docs/mvp-7-day-plan.m
 
 AWS deployment plan: [docs/aws-deployment-plan.md](./docs/aws-deployment-plan.md).
 
-### NOTE: Thêm Frontend đơn giản ReactJS (có reponsive cho mobile). thêm vào đó, cả FE và BE sẽ deploy lên AWS EC2, giúp tôi viết lại deployment plan
-
-- Dùng postgre service của AWS luôn
-- Hình như là vẫn không cần HTTPS đúng không?
-- AWS API Gateway có giúp gì được ở phần này không?
-- Dùng AWS S3 để lưu uploaded file (phần này sẽ đổi code những gì, plan chi tiết, hoặc nếu không muốn đổi code thì có thể sync từ docker volumn -> S3 được không)
-
 > An Internal Document QA System powered by Retrieval-Augmented Generation (RAG), built with Go.
 >
 > Upload PDF documents → Ask questions in natural language → Get accurate answers with citations.

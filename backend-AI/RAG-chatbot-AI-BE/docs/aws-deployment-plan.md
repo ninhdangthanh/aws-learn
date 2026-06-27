@@ -2,466 +2,149 @@
 
 ## Mục Tiêu
 
-Deploy backend RAG lên AWS để client có thể:
+Deploy backend RAG và frontend React lên AWS, dùng dịch vụ AWS phù hợp để đảm bảo:
 
-- Upload PDF.
-- Theo dõi trạng thái xử lý document.
-- Search semantic qua Qdrant.
-- Chat hỏi đáp với citations.
-- Nhận response thường hoặc SSE streaming.
+- Backend ổn định và có thể mở rộng.
+- File upload được lưu trữ tin cậy.
+- Dữ liệu metadata được quản lý bằng dịch vụ managed.
+- HTTPS được dùng với browser/public access.
+- Tránh mở các dịch vụ stateful ra internet.
 
-Project này khác `video-call` ở chỗ:
+## Quyết định chính
 
-- Không có WebRTC media.
-- Không cần TURN/STUN.
-- Không cần WebSocket signaling.
-- API chủ yếu là HTTP/SSE.
-- Có nhiều dependency stateful hơn: PostgreSQL, Redis, Qdrant.
+- FE và BE sẽ deploy chung trên 1 EC2 instance.
+- Dùng Docker Compose trên EC2 để chạy backend, frontend, Redis và Qdrant cho demo.
+- PostgreSQL dùng dịch vụ managed của AWS (RDS) thay vì chạy trong Docker.
+- File upload sẽ được lưu vào một thư mục chung trên EC2, rồi tự đồng bộ lên Amazon S3.
+- Không dùng ECS, ALB, API Gateway hay các dịch vụ phức tạp.
+- Chỉ dùng cho demo, không phải production.
 
-## Có Cần HTTPS Không?
-
-Nếu chỉ demo nội bộ bằng `curl` hoặc Postman:
-
-```text
-Client -> http://<public-ip>:8080
-```
-
-thì có thể chưa cần HTTPS.
-
-Nhưng nếu đưa cho người khác dùng qua browser hoặc upload tài liệu thật, nên dùng HTTPS vì:
-
-- Request có thể chứa nội dung tài liệu nội bộ.
-- Chat history và citations có thể nhạy cảm.
-- Sau này có auth/token thì HTTP sẽ làm lộ token.
-- Browser/API client production thường kỳ vọng HTTPS.
-- SSE chạy tốt qua HTTPS khi có proxy/load balancer cấu hình đúng.
-
-Kết luận:
-
-- Demo nhanh, ít người dùng: có thể public trực tiếp ECS task bằng HTTP.
-- Production hoặc tài liệu thật: nên dùng domain + HTTPS, thường qua ALB hoặc API Gateway/CloudFront.
-
-## Architecture Hiện Tại Theo README
-
-```text
-Client
-  -> HTTP / SSE
-  -> Go API Server :8080
-
-Go API Server
-  -> PostgreSQL: metadata, documents, chunks, chat history
-  -> Redis: Asynq queue/cache
-  -> Qdrant: vector database
-  -> OpenAI API: embeddings + LLM
-
-Background Worker
-  -> Redis: dequeue jobs
-  -> PostgreSQL: update document/chunk status
-  -> Qdrant: upsert vectors
-  -> OpenAI API: embeddings
-```
-
-API và worker nên chạy từ cùng Docker image nhưng bằng command khác:
-
-```text
-api command:    ./api
-worker command: ./worker
-```
-
-## Option A - Demo Nhanh Không Dùng ALB
-
-Đây là hướng bạn đang nghĩ tới: gắn public IP trực tiếp cho ECS task/service.
-
-### Luồng
-
-```text
-Client
-  -> http://<ecs-task-public-ip>:8080
-  -> ECS Fargate task
-  -> API container
-```
-
-Nếu API và worker chạy chung task với Redis/Qdrant/Postgres sidecar:
-
-```text
-ECS Task public subnet
-  - api container :8080 public
-  - worker container internal
-  - postgres container internal
-  - redis container internal
-  - qdrant container internal
-```
-
-### Ưu Điểm
-
-- Rẻ và đơn giản.
-- Không cần ALB.
-- Không cần domain.
-- Hợp lý để demo MVP bằng Postman/curl.
-
-### Nhược Điểm
-
-- Public IP của task có thể đổi khi redeploy/restart.
-- Không có HTTPS.
-- Không có load balancing.
-- Không có health check/service routing tốt như ALB.
-- Stateful containers trong ECS task không bền vững nếu dùng local filesystem.
-- Không nên mở PostgreSQL/Redis/Qdrant ra internet.
-
-### Security Group
-
-Chỉ mở API port:
-
-```text
-Inbound:
-  TCP 8080 từ IP của bạn hoặc 0.0.0.0/0 nếu demo public tạm thời
-
-Outbound:
-  All traffic, để gọi OpenAI API và AWS services
-```
-
-Không mở:
-
-```text
-5432 PostgreSQL
-6379 Redis
-6333/6334 Qdrant
-```
-
-Các service nội bộ nên chỉ được API/worker truy cập trong task/VPC.
-
-### ECS Network
-
-Với Fargate:
-
-```text
-Subnet: public subnet
-assignPublicIp: ENABLED
-Security group: mở 8080
-```
-
-Client gọi:
-
-```bash
-curl http://<task-public-ip>:8080/api/v1/health
-```
-
-### Khi Nào Dùng Option A?
-
-Dùng khi:
-
-- Đang học/deploy demo.
-- Chưa cần domain.
-- Chưa có user thật.
-- Chấp nhận IP đổi sau mỗi lần deploy.
-
-Không nên dùng lâu dài nếu có dữ liệu thật.
-
-## Option B - Production Tối Thiểu Với ALB + HTTPS
-
-### Luồng
-
-```text
-Client
-  -> https://rag.example.com
-  -> ALB HTTPS :443
-  -> ECS API service :8080
-```
-
-Worker không cần public endpoint:
-
-```text
-ECS worker service
-  -> Redis
-  -> PostgreSQL
-  -> Qdrant
-  -> OpenAI API
-```
-
-### Ưu Điểm
-
-- Có domain ổn định.
-- Có HTTPS qua ACM.
-- ALB health check API.
-- Dễ scale nhiều API tasks.
-- Client không phụ thuộc public IP task.
-- Security tốt hơn: ECS tasks có thể nằm private subnet.
-
-### Nhược Điểm
-
-- Tốn thêm chi phí ALB.
-- Cần Route 53/domain/ACM.
-- Setup ban đầu nhiều bước hơn.
-
-### Khi Nào Dùng Option B?
-
-Dùng khi:
-
-- Có frontend/browser client.
-- Upload tài liệu thật.
-- Có auth/token.
-- Muốn endpoint ổn định.
-- Muốn deploy giống production.
-
-## Option C - Static Frontend Riêng, Backend API Riêng
-
-Nếu sau này có frontend web React riêng cho chatbot:
+## Kiến trúc đơn giản cho demo
 
 ```text
 Browser
-  -> CloudFront/S3
-  -> tải frontend static
-
-Browser
-  -> https://api.rag.example.com
-  -> ALB/API Gateway
-  -> ECS API service
+  -> EC2 public IP / domain
+  -> Nginx hoặc reverse proxy
+  -> React frontend
+  -> Go API backend
+  -> RDS PostgreSQL service của AWS
+  -> Redis / Qdrant chạy trong Docker trên cùng EC2
+  -> thư mục upload trên EC2
+  -> S3 bucket (sync tự động)
 ```
 
-Hướng này hợp lý khi frontend là static SPA và backend là API.
+## Có cần HTTPS không?
 
-## Khuyến Nghị Cho Project Này
+Với demo đơn giản, có thể dùng HTTP tạm thời nếu bạn chỉ mở cho nội bộ hoặc test nhanh.
 
-Theo giai đoạn:
+Nếu muốn đẹp hơn và dễ dùng từ browser, nên bật HTTPS bằng Nginx + Let's Encrypt. Đây là bước optional, không bắt buộc cho MVP demo.
 
-1. MVP demo:
-   - ECS Fargate public IP trực tiếp.
-   - HTTP port `8080`.
-   - Restrict security group inbound theo IP của bạn nếu có thể.
+## Cách lưu file trên S3
 
-2. Demo nghiêm túc hơn:
-   - Dùng ALB + domain + HTTPS.
-   - API service public qua ALB.
-   - Worker service private.
+Hiện tại bạn đang upload trực tiếp vào thư mục local. Với mô hình này, cách đơn giản nhất là:
 
-3. Production:
-   - ALB + HTTPS.
-   - RDS PostgreSQL.
-   - ElastiCache Redis hoặc Redis managed.
-   - Qdrant Cloud hoặc Qdrant chạy riêng có persistent storage.
-   - Secrets trong SSM Parameter Store hoặc Secrets Manager.
-   - ECS tasks ở private subnets.
+- backend nhận file upload,
+- lưu vào một thư mục chung như `/data/uploads` trên EC2,
+- rồi dùng một job sync tự động đẩy lên S3.
 
-## Hạ Tầng Đề Xuất Cho MVP Không ALB
+### Cách 1: Dùng `aws s3 sync` chạy nền trên EC2 (đề xuất)
 
-### ECS Cluster
+Đây là cách đơn giản nhất và dễ quản lý nhất.
 
-```text
-Cluster: rag-chatbot-cluster
-Launch type: Fargate
-Region: ap-southeast-1
-```
-
-### ECR
-
-Tạo repository:
-
-```text
-rag-chatbot-api
-```
-
-Nếu API và worker dùng chung image, chỉ cần một ECR repo.
-
-### ECS Task Definition
-
-Một task definition có thể gồm:
-
-```text
-api container
-worker container
-postgres container
-redis container
-qdrant container
-```
-
-Nhưng với ECS Fargate, cách này chỉ nên dùng demo vì PostgreSQL/Qdrant cần storage bền vững.
-
-Biến môi trường API/worker:
-
-```text
-PORT=8080
-OPENAI_API_KEY=<from SSM/Secrets Manager>
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_LLM_MODEL=gpt-4.1-mini
-POSTGRES_DSN=postgres://user:pass@localhost:5432/ragchatbot?sslmode=disable
-REDIS_ADDR=localhost:6379
-QDRANT_ADDR=localhost:6334
-CHUNK_SIZE=500
-CHUNK_OVERLAP=100
-SEARCH_TOP_K=5
-```
-
-Nếu tách DB/Redis/Qdrant ra managed services, thay `localhost` bằng endpoint nội bộ/VPC endpoint tương ứng.
-
-### ECS Service
-
-Cho demo không ALB:
-
-```text
-Service: rag-chatbot-service
-Desired count: 1
-Subnet: public subnet
-Assign public IP: ENABLED
-Load balancer: none
-Security group inbound: TCP 8080
-```
-
-Sau khi service chạy, lấy public IP của task:
+- Cài AWS CLI trên EC2.
+- Gắn IAM role cho EC2 cho phép write vào S3 bucket.
+- Chạy lệnh:
 
 ```bash
-aws ecs list-tasks \
-  --cluster rag-chatbot-cluster \
-  --service-name rag-chatbot-service
+aws s3 sync /data/uploads s3://your-bucket/uploads --delete
 ```
 
-Sau đó describe task/network interface để lấy public IP.
+- Đưa lệnh này vào `systemd` service hoặc `cron` để chạy định kỳ, ví dụ mỗi 1 phút.
 
-Test:
+Ưu điểm:
 
-```bash
-curl http://<task-public-ip>:8080/api/v1/health
-```
+- Dễ hiểu, dễ debug.
+- Không cần thêm container riêng.
+- Phù hợp với demo.
 
-## Hạ Tầng Đề Xuất Cho Production
+### Cách 2: Dùng Docker image hỗ trợ sync sẵn
 
-### API Service
+Đây là lựa chọn khép kín hơn nếu bạn muốn mọi thứ chạy trong Docker.
+
+- Tạo một container phụ chỉ làm nhiệm vụ sync file từ volume Docker sang S3.
+- Container này chạy định kỳ bằng cron hoặc script nội bộ.
+
+Ưu điểm:
+
+- Tất cả logic sync nằm trong Docker stack.
+- Dễ quản lý cùng các service khác.
+
+Nhược điểm:
+
+- Hơi nhiều bước hơn cách 1.
+
+Chi tiết triển khai cho cách này sẽ được viết riêng trong một file note khác.
+
+## Hạ tầng đề xuất cho demo
+
+### EC2 instance
+
+- 1 instance Ubuntu hoặc Amazon Linux.
+- Cài Docker + Docker Compose.
+- Mở port:
+  - `22` cho SSH,
+  - `80` cho frontend/backend,
+  - `443` nếu bật HTTPS.
+
+### Docker Compose services
+
+Trên cùng một EC2, chạy:
+
+- frontend React
+- backend Go API
+- Redis
+- Qdrant
+
+### Persistent storage
+
+- Dùng bind mount để lưu file upload và dữ liệu local trên EC2.
+- Ví dụ:
 
 ```text
-ECS service: rag-chatbot-api-service
-Container: api :8080
-Subnet: private subnets
-Public IP: DISABLED
-Inbound: từ ALB security group
+/data/uploads     -> file upload của app
+/data/redis       -> dữ liệu Redis
+/data/qdrant      -> dữ liệu Qdrant
 ```
 
-### Worker Service
+## Bảo mật đơn giản
 
-```text
-ECS service: rag-chatbot-worker-service
-Container: worker
-Subnet: private subnets
-Public IP: DISABLED
-No inbound public traffic
-```
+- Chỉ mở cổng `80`/`443` ra internet.
+- Không cần mở PostgreSQL, Redis, Qdrant ra public internet.
+- Dùng IAM role cho EC2 để truy cập S3.
+- Nếu có thể, dùng `aws configure` hoặc role IAM thay vì hardcode key.
 
-Worker chỉ cần outbound tới:
+## Quy trình làm việc đề xuất
 
-- Redis.
-- PostgreSQL.
-- Qdrant.
-- OpenAI API.
-- CloudWatch Logs.
+1. Launch EC2 instance.
+2. Cài Docker + Docker Compose.
+3. Cài AWS CLI và gắn IAM role cho S3.
+4. Tạo bucket S3 cho uploads.
+5. Chạy Docker Compose để start FE/BE/Redis/Qdrant.
+6. Đặt thư mục upload vào bind mount.
+7. Cấu hình sync job từ EC2 folder sang S3.
+8. Test upload → file xuất hiện trong S3.
 
-### PostgreSQL
+## Khuyến nghị cho project này
 
-Production nên dùng:
+Với mục tiêu demo, cách hợp lý nhất là:
 
-```text
-Amazon RDS PostgreSQL
-```
+- dùng 1 EC2 instance,
+- deploy FE + BE chung,
+- dùng S3 làm nơi lưu file chính,
+- sync đơn giản bằng `aws s3 sync`.
 
-Không nên dùng PostgreSQL container trong ECS cho dữ liệu thật.
+Đây là giải pháp dễ nhất, ít phức tạp nhất, và đủ cho việc demo nội bộ hoặc cho người dùng thử nhanh.
 
-### Redis
+## Ghi chú
 
-Production nên dùng:
-
-```text
-Amazon ElastiCache Redis
-```
-
-Hoặc Redis managed provider khác.
-
-### Qdrant
-
-Các lựa chọn:
-
-- Qdrant Cloud: đơn giản nhất.
-- EC2/ECS riêng + EBS/EFS persistent storage: tự vận hành nhiều hơn.
-- Chạy sidecar Qdrant trong cùng ECS task: chỉ phù hợp demo.
-
-### Secrets
-
-Lưu vào SSM Parameter Store hoặc Secrets Manager:
-
-```text
-/rag-chatbot/OPENAI_API_KEY
-/rag-chatbot/POSTGRES_DSN
-/rag-chatbot/REDIS_ADDR
-/rag-chatbot/QDRANT_ADDR
-```
-
-Không hardcode OpenAI key trong task definition hoặc source code.
-
-## Checklist Deploy MVP Không ALB
-
-1. Tạo Dockerfile build Go API và worker.
-2. Build image local.
-3. Push image lên ECR.
-4. Tạo ECS cluster.
-5. Tạo task definition gồm API, worker và các dependency demo nếu cần.
-6. Tạo security group mở inbound `8080`.
-7. Tạo ECS service trong public subnet với `assignPublicIp=ENABLED`.
-8. Lấy public IP của running task.
-9. Test health endpoint.
-10. Chạy migration PostgreSQL.
-11. Upload PDF test.
-12. Kiểm tra document status.
-13. Test search/chat/SSE.
-
-## Checklist Deploy Production
-
-1. Tạo ECR repo.
-2. Build/push image.
-3. Tạo RDS PostgreSQL.
-4. Tạo ElastiCache Redis.
-5. Tạo Qdrant Cloud hoặc Qdrant persistent deployment.
-6. Tạo SSM/Secrets Manager parameters.
-7. Tạo ECS API service private.
-8. Tạo ECS worker service private.
-9. Tạo ALB public HTTPS.
-10. Gắn ACM certificate.
-11. Route domain qua Route 53.
-12. ALB health check tới `/api/v1/health`.
-13. Chạy migration.
-14. Test upload/search/chat/SSE.
-15. Bật CloudWatch logs và alarms.
-
-## Lưu Ý Về SSE
-
-Endpoint chat streaming dùng SSE:
-
-```text
-POST /api/v1/chat
-stream=true
-```
-
-Nếu đi qua ALB/nginx/proxy, cần tránh buffering response quá lâu.
-
-Với direct public IP không ALB, SSE sẽ đơn giản hơn:
-
-```text
-Client -> API container
-```
-
-Nhưng khi chuyển qua ALB, cần test:
-
-```bash
-curl -N -X POST https://rag.example.com/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question":"...","stream":true}'
-```
-
-## Kết Luận
-
-Bạn nghĩ đúng một phần:
-
-- Nếu chỉ demo backend API, chưa cần HTTPS, có thể public trực tiếp ECS task bằng public IP và port `8080`.
-- Không cần ALB cho demo nhanh.
-
-Nhưng cần nhớ:
-
-- Direct public IP không ổn định sau redeploy.
-- HTTP không an toàn cho tài liệu thật/token/chat history.
-- Stateful dependencies không nên chạy lâu dài bằng container filesystem trong ECS.
-- Khi project nghiêm túc hơn, nên chuyển sang ALB + HTTPS + managed storage.
+Chi tiết triển khai cho việc sync file từ EC2 sang S3 sẽ được viết riêng trong file note: [docs/s3-sync-note.md](./s3-sync-note.md).

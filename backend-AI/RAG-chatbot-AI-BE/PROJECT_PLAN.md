@@ -206,3 +206,23 @@ Acceptance criteria:
 - Delete cleans PostgreSQL and Qdrant.
 - README has tested commands.
 - Full demo flow works end-to-end.
+
+### Phase 12 - Frontend React & User Experience
+
+> Goal: Build a minimal responsive SPA for upload, status, search, and chat.
+
+| # | Task | Details | Done |
+|---|------|---------|------|
+| 12.1 | React scaffold | Minimal Vite React app with a few pages | [ ] |
+| 12.2 | Upload page | File input + upload button, show status from API | [ ] |
+| 12.3 | Status list | Simple list of documents and status badges | [ ] |
+| 12.4 | Chat/search page | Ask question and show answer with citations | [ ] |
+| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [ ] |
+| 12.6 | Deploy static build | Deploy as static files on EC2/S3/CloudFront | [ ] |
+
+Acceptance criteria:
+
+- Browser can upload PDF and see document status.
+- Chat/search flows work from a single lightweight SPA.
+- UI is usable on mobile and desktop.
+- Deployment path is documented for static hosting.
