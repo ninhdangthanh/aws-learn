@@ -5,6 +5,37 @@ Tài liệu này tóm tắt cách domain, Route 53, ACM certificate và Applicat
 https://ninh-video-call-demo.food
 (NÀY MUA Ở NGOÀI, 42k TRÊN TRANG inet.com)
 
+Điểm quan trọng của project này:
+
+```text
+Domain được mua ở ngoài AWS: INET
+DNS đang quản lý bằng AWS Route 53 Hosted Zone
+```
+
+Vì vậy so với hướng mua domain trực tiếp trong AWS Route 53 Domains, khác biệt chính chỉ là:
+
+```text
+Bạn phải vào INET để đổi nameserver sang 4 nameserver của Route 53.
+```
+
+Các phần còn lại vẫn giống nhau:
+
+- Tạo Route 53 hosted zone.
+- Tạo DNS records trong hosted zone.
+- Tạo ACM certificate.
+- Validate ACM bằng CNAME record trong Route 53.
+- Tạo A Alias record trỏ domain về ALB.
+- Gắn ACM certificate vào ALB HTTPS listener.
+
+Route 53 không chỉ là nơi bán domain. Route 53 gồm nhiều phần, trong đó hay gặp nhất là:
+
+- **Route 53 Domains**: dịch vụ đăng ký/mua/gia hạn domain.
+- **Route 53 Hosted Zones**: nơi quản lý DNS records của domain.
+- **Route 53 Records**: các record như A, A Alias, CNAME, MX, TXT, NS, SOA.
+- **Route 53 Health Checks**: kiểm tra endpoint có sống không, dùng cho routing nâng cao.
+
+Trong project này, bạn không dùng Route 53 Domains để mua domain, nhưng vẫn dùng Route 53 Hosted Zone để quản lý DNS.
+
 Mục tiêu cuối cùng:
 
 ```text
@@ -90,6 +121,15 @@ Registrar chịu trách nhiệm:
 - Cho phép đổi nameserver của domain.
 
 Registrar không nhất thiết phải là nơi quản lý DNS record. Bạn có thể mua domain ở INET nhưng dùng Route 53 để quản lý DNS.
+
+Với project này:
+
+```text
+INET = registrar, nơi mua và gia hạn domain.
+Route 53 Hosted Zone = nơi quản lý DNS records.
+```
+
+Do đó câu “dùng Route 53” trong project này nên hiểu là “dùng Route 53 để quản lý DNS”, không phải “mua domain từ Route 53”.
 
 ## 3. Nameserver Là Gì?
 
@@ -249,6 +289,15 @@ INET
   -> đổi nameserver
 ```
 
+Route 53 là một dịch vụ DNS lớn của AWS, không chỉ là nơi bán domain. Trong Route 53 có nhiều mảng khác nhau:
+
+```text
+Route 53 Domains      -> mua/gia hạn/chuyển domain
+Route 53 Hosted Zones -> quản lý DNS records
+Route 53 Records      -> A, A Alias, CNAME, MX, TXT...
+Route 53 Health Checks -> kiểm tra endpoint và routing nâng cao
+```
+
 Route 53 hosted zone là nơi quản lý DNS records:
 
 ```text
@@ -267,11 +316,11 @@ INET giữ quyền sở hữu domain
 Route 53 trả lời DNS cho domain
 ```
 
-Nói ngắn gọn:
+Nói ngắn gọn với project hiện tại:
 
 ```text
-Registrar: ai sở hữu domain?
-Route 53: domain trỏ đi đâu?
+INET: domain thuộc về ai, gia hạn ở đâu, nameserver là gì?
+Route 53 Hosted Zone: domain trỏ đi đâu, records là gì?
 ```
 
 ## 7. ACM Certificate Là Gì?
@@ -614,7 +663,626 @@ Kiểm tra:
 - Nginx location `/ws` có set `Upgrade` và `Connection` header không.
 - Backend route `/ws` có nhận request không.
 
-## 17. Tóm Tắt Dễ Nhớ
+## 17. Hiện Trạng Project Này Đang Deploy Như Thế Nào?
+
+Hiện tại project dùng một ECS service:
+
+```text
+ECS cluster:  videocall-cluster
+ECS service:  videocall-service
+Task family:  videocall-task
+```
+
+Trong một ECS task có 2 container:
+
+```text
+backend container  :8080
+frontend container :80
+```
+
+Điều này nghĩa là backend và frontend đang chạy chung vòng đời:
+
+- Deploy service là deploy cả backend và frontend.
+- Scale service là scale cả backend và frontend cùng nhau.
+- Nếu task restart, cả backend và frontend trong task đó cùng restart.
+- Frontend có thể gọi backend qua `localhost:8080` vì hai container cùng nằm trong một ECS task với network mode `awsvpc`.
+
+Task definition hiện tại có các điểm quan trọng:
+
+```json
+"networkMode": "awsvpc"
+```
+
+```json
+"name": "backend",
+"containerPort": 8080
+```
+
+```json
+"name": "frontend",
+"containerPort": 80
+```
+
+```json
+"name": "BACKEND_URL",
+"value": "http://localhost:8080"
+```
+
+`dependsOn` trong frontend:
+
+```json
+"dependsOn": [
+  {
+    "containerName": "backend",
+    "condition": "START"
+  }
+]
+```
+
+Ý nghĩa: ECS sẽ start backend trước, rồi mới start frontend. Điều này giúp Nginx frontend proxy sang backend ổn định hơn lúc task khởi động.
+
+## 18. Hiện Tại FE Call BE Bằng Cách Nào?
+
+Browser không gọi thẳng backend container.
+
+Browser gọi cùng domain hiện tại:
+
+```text
+https://ninh-video-call-demo.food/api/...
+wss://ninh-video-call-demo.food/ws
+```
+
+Trong frontend code, production đang dùng same-origin:
+
+```text
+API_URL = window.location.origin
+WS_URL  = wss://<current-host>/ws
+```
+
+Vì vậy nếu người dùng mở:
+
+```text
+https://ninh-video-call-demo.food
+```
+
+thì frontend sẽ gọi:
+
+```text
+https://ninh-video-call-demo.food/api/auth/login
+wss://ninh-video-call-demo.food/ws?token=...
+```
+
+Sau đó request đi qua:
+
+```text
+Browser
+  -> ALB HTTPS :443
+  -> frontend Nginx :80
+  -> /api hoặc /ws
+  -> backend :8080
+```
+
+Frontend Nginx quyết định proxy sang backend bằng config:
+
+```nginx
+location /api/ {
+    proxy_pass ${BACKEND_URL};
+}
+
+location /ws {
+    proxy_pass ${BACKEND_URL};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+}
+```
+
+Trong ECS task definition:
+
+```text
+BACKEND_URL=http://localhost:8080
+```
+
+Vậy câu trả lời ngắn gọn:
+
+```text
+FE gọi BE bằng same-origin URL từ browser.
+Frontend Nginx proxy /api và /ws sang http://localhost:8080.
+```
+
+## 19. Có Tách Frontend Và Backend Thành 2 ECS Service Được Không?
+
+Có. Backend và frontend có thể tách thành 2 ECS service cùng thuộc một ECS cluster.
+
+Ví dụ:
+
+```text
+ECS cluster: videocall-cluster
+
+Service 1:
+  name: videocall-frontend-service
+  task: frontend-task
+  container: frontend :80
+  gắn với ALB public target group
+
+Service 2:
+  name: videocall-backend-service
+  task: backend-task
+  container: backend :8080
+  không public ra internet, chỉ nhận traffic nội bộ
+```
+
+Khi tách ra, `BACKEND_URL=http://localhost:8080` không còn đúng nữa, vì frontend và backend không còn chung task.
+
+Bạn cần một trong các cách sau:
+
+### Cách 1: Vẫn để ALB public route /api và /ws vào backend
+
+ALB có thể có nhiều target group:
+
+```text
+Target group frontend: port 80
+Target group backend:  port 8080
+```
+
+ALB listener rule:
+
+```text
+Host = ninh-video-call-demo.food AND Path = /api/* -> backend target group
+Host = ninh-video-call-demo.food AND Path = /ws*   -> backend target group
+Host = ninh-video-call-demo.food AND Path = /*     -> frontend target group
+```
+
+Khi đó browser vẫn gọi:
+
+```text
+https://ninh-video-call-demo.food/api/...
+wss://ninh-video-call-demo.food/ws
+```
+
+Nhưng traffic `/api` và `/ws` không đi qua frontend Nginx nữa. ALB route trực tiếp tới backend service.
+
+Ưu điểm:
+
+- Tách service rõ ràng.
+- Scale frontend/backend độc lập.
+- Không cần service discovery nội bộ cho đường browser gọi API.
+
+Nhược điểm:
+
+- ALB config phức tạp hơn.
+- Cần target group backend.
+- Cần security group backend cho phép inbound `8080` từ ALB security group.
+
+### Cách 2: Frontend service gọi backend service qua service discovery nội bộ
+
+Bạn có thể dùng ECS Service Connect hoặc AWS Cloud Map để backend có DNS nội bộ, ví dụ:
+
+```text
+http://backend.videocall.local:8080
+```
+
+Khi đó frontend Nginx có thể proxy:
+
+```text
+BACKEND_URL=http://backend.videocall.local:8080
+```
+
+Ưu điểm:
+
+- Backend không cần gắn trực tiếp với ALB.
+- Backend chỉ nằm trong private network.
+
+Nhược điểm:
+
+- Cần cấu hình thêm service discovery hoặc Service Connect.
+- Debug network nội bộ sẽ nhiều bước hơn.
+
+Với project hiện tại, nếu mới học/deploy demo, để chung một service vẫn hợp lý. Khi cần scale backend/frontend độc lập hoặc muốn kiến trúc production rõ hơn, hãy tách thành 2 service.
+
+## 20. ALB Và API Gateway Khác Nhau Thế Nào?
+
+### ALB
+
+ALB phù hợp với app web chạy container:
+
+- Route HTTP/HTTPS theo host/path.
+- Hỗ trợ WebSocket.
+- Gắn trực tiếp với ECS target group.
+- Phù hợp để serve frontend và proxy API.
+- Chi phí và cấu hình thường dễ hiểu hơn cho app ECS nhỏ.
+
+Project hiện tại dùng ALB là hợp lý vì:
+
+```text
+Browser -> ALB -> ECS frontend/backend
+```
+
+và app có WebSocket `/ws`.
+
+### API Gateway
+
+API Gateway phù hợp khi bạn muốn quản lý API như một lớp riêng:
+
+- Rate limiting/throttling.
+- API key.
+- Authorizer.
+- Request/response transformation.
+- Version/stage API.
+- Tích hợp Lambda hoặc HTTP backend.
+- Có HTTP API và WebSocket API riêng.
+
+API Gateway có thể đưa vào project này không?
+
+Có, nhưng không bắt buộc.
+
+Nếu thêm API Gateway, kiến trúc có thể thành:
+
+```text
+Frontend:
+  Browser -> ALB -> ECS frontend
+
+API:
+  Browser -> API Gateway -> VPC Link -> ALB/NLB/private backend service
+```
+
+Hoặc:
+
+```text
+Browser -> API Gateway -> backend service
+Browser -> ALB -> frontend service
+```
+
+Nhưng với video call app hiện tại, dùng API Gateway sẽ làm kiến trúc phức tạp hơn, đặc biệt vì bạn có cả REST API và WebSocket signaling.
+
+Khuyến nghị:
+
+- Giai đoạn hiện tại: dùng ALB là đủ.
+- Sau này nếu cần rate limit, API key, authorizer riêng, hoặc muốn quản lý API độc lập: cân nhắc API Gateway.
+- Nếu chỉ cần route `/api` và `/ws` vào ECS, ALB làm tốt rồi.
+
+## 21. Các AWS Service Đang Dùng Và Còn Thiếu Gì Không?
+
+Các service/tài nguyên bạn đã dùng:
+
+- ECS: chạy container bằng service/task.
+- ECR: lưu Docker image backend và frontend.
+- EC2 Load Balancing: Application Load Balancer.
+- EC2 Target Group: nơi ALB forward traffic.
+- EC2 Security Group: firewall cho ALB và ECS task.
+- IAM Role: `ecsTaskExecutionRole` để ECS pull image, ghi log, đọc secret.
+- Route 53 Hosted Zone: quản lý DNS domain.
+- ACM: cấp certificate HTTPS cho ALB.
+- SSM Parameter Store: lưu secret runtime như JWT/TURN.
+- CloudWatch Logs: nhận log từ ECS containers.
+
+Những thứ nên thêm hoặc cân nhắc:
+
+- VPC/subnet rõ ràng: biết service đang chạy ở public hay private subnet.
+- NAT Gateway hoặc VPC endpoints: nếu ECS task chạy private subnet và cần pull image/gửi logs/đọc SSM.
+- RDS hoặc EFS: nếu cần lưu database/file bền vững.
+- AWS Backup: nếu dùng EFS/RDS production.
+- WAF: nếu muốn chặn request xấu ở ALB.
+- Terraform: để quản lý hạ tầng bằng code thay vì click console.
+- CloudTrail: audit ai đã thay đổi tài nguyên AWS.
+
+## 22. Export Config Về Terraform Được Không?
+
+Được, nhưng cần hiểu đúng: Terraform không tự biết các tài nguyên bạn đã click trên AWS Console. Bạn cần đưa chúng vào Terraform state bằng import, hoặc dùng tool hỗ trợ generate.
+
+Có 3 hướng phổ biến.
+
+### Hướng 1: Viết Terraform thủ công rồi import
+
+Bạn viết resource Terraform tương ứng:
+
+```hcl
+resource "aws_lb" "videocall" {
+  name = "videocall-alb"
+}
+```
+
+Sau đó import tài nguyên thật:
+
+```bash
+terraform import aws_lb.videocall arn:aws:elasticloadbalancing:ap-southeast-1:ACCOUNT_ID:loadbalancer/app/videocall-alb/...
+```
+
+Sau khi import, chạy:
+
+```bash
+terraform plan
+```
+
+Nếu plan báo muốn thay đổi nhiều thứ, bạn bổ sung config cho khớp với hạ tầng thật.
+
+### Hướng 2: Dùng Terraform import block
+
+Terraform bản mới hỗ trợ import block:
+
+```hcl
+import {
+  to = aws_lb.videocall
+  id = "arn:aws:elasticloadbalancing:ap-southeast-1:ACCOUNT_ID:loadbalancer/app/videocall-alb/..."
+}
+```
+
+Sau đó chạy:
+
+```bash
+terraform plan
+terraform apply
+```
+
+### Hướng 3: Dùng tool generate như Terraformer
+
+Một số tool như `terraformer` có thể đọc AWS account và sinh Terraform file/state ban đầu.
+
+Ví dụ nhóm tài nguyên cần export:
+
+```text
+ECS cluster
+ECS service
+ECS task definition
+ECR repositories
+ALB
+ALB listeners
+Target groups
+Security groups
+Route 53 records
+ACM certificate
+IAM role/policies
+CloudWatch log group
+SSM parameters metadata
+VPC/subnets nếu muốn quản lý luôn network
+```
+
+Lưu ý:
+
+- Secret value trong SSM SecureString không nên đưa vào Terraform plaintext.
+- ACM certificate DNS validation record có thể import, nhưng private key/certificate do ACM quản lý.
+- Task definition thường thay đổi mỗi lần deploy image, nên cần quyết định Terraform quản lý task definition hay để GitHub Actions quản lý revision.
+- Nếu Terraform quản lý ECS service, cần cẩn thận để Terraform không rollback image tag mà GitHub Actions vừa deploy.
+
+Khuyến nghị cho project này:
+
+```text
+Terraform quản lý hạ tầng nền:
+  VPC, subnet, security group, ALB, target group, listener, Route 53, ACM, ECR, ECS cluster, IAM, log group.
+
+GitHub Actions quản lý deploy app:
+  build image, push ECR, render task definition, update ECS service.
+```
+
+## 23. VPC, Subnet, Security Group Là Gì?
+
+### VPC
+
+VPC là mạng riêng ảo trong AWS account.
+
+Có thể hiểu:
+
+```text
+VPC = private network của bạn trên AWS
+```
+
+Trong VPC có:
+
+- Subnet.
+- Route table.
+- Internet Gateway.
+- NAT Gateway.
+- Security Group.
+- Load Balancer.
+- ECS task network interface.
+
+ALB và ECS service phải nằm trong cùng VPC hoặc trong network có thể route tới nhau.
+
+### Subnet
+
+Subnet là một phần nhỏ của VPC, thường nằm trong một Availability Zone.
+
+Ví dụ:
+
+```text
+VPC: 10.0.0.0/16
+Subnet A: 10.0.1.0/24, ap-southeast-1a
+Subnet B: 10.0.2.0/24, ap-southeast-1b
+```
+
+Public subnet:
+
+- Có route ra Internet Gateway.
+- ALB internet-facing thường nằm ở public subnets.
+
+Private subnet:
+
+- Không public trực tiếp ra internet.
+- ECS task production thường nên nằm ở private subnets.
+- Nếu task cần pull image/gửi logs/đọc SSM, cần NAT Gateway hoặc VPC endpoints.
+
+### Security Group
+
+Security group là firewall cấp resource.
+
+Inbound là traffic đi vào resource.
+
+Outbound là traffic đi ra khỏi resource.
+
+Ví dụ ALB security group:
+
+```text
+Inbound:
+  TCP 80  từ 0.0.0.0/0
+  TCP 443 từ 0.0.0.0/0
+
+Outbound:
+  TCP 80 tới ECS service security group
+```
+
+Ví dụ ECS service security group:
+
+```text
+Inbound:
+  TCP 80 từ ALB security group
+
+Outbound:
+  allow all, hoặc tối thiểu cho ECR/CloudWatch/SSM/backend dependencies
+```
+
+Không nên mở:
+
+```text
+TCP 8080 từ 0.0.0.0/0
+```
+
+vì backend không cần public.
+
+## 24. Register Task Definition, Task Definition ARN Và Task ARN
+
+### Task Definition
+
+Task definition là bản thiết kế để ECS biết:
+
+- Chạy container nào.
+- Image nào.
+- CPU/memory bao nhiêu.
+- Port nào.
+- Env/secrets nào.
+- Log gửi về đâu.
+- Role nào được dùng.
+
+Trong repo, file task definition là:
+
+```text
+video-call/.aws/task-definition.json
+```
+
+Khi chạy:
+
+```bash
+aws ecs register-task-definition \
+  --cli-input-json file://video-call/.aws/task-definition.json \
+  --region ap-southeast-1
+```
+
+AWS tạo một revision mới cho task definition.
+
+Ví dụ ARN:
+
+```text
+arn:aws:ecs:ap-southeast-1:ACCOUNT_ID:task-definition/videocall-task:12
+```
+
+Đây gọi là task definition ARN.
+
+### Task ARN
+
+Task ARN là ARN của một task đang chạy cụ thể.
+
+Ví dụ:
+
+```text
+arn:aws:ecs:ap-southeast-1:ACCOUNT_ID:task/videocall-cluster/abc123...
+```
+
+So sánh:
+
+```text
+Task definition ARN = bản thiết kế version 12.
+Task ARN            = một instance đang chạy từ bản thiết kế đó.
+```
+
+ECS service dùng task definition để tạo task. Khi bạn deploy revision mới, service sẽ stop task cũ và start task mới theo deployment strategy.
+
+## 25. Lưu File Database Trong ECS Có An Toàn Không?
+
+Hiện backend dùng:
+
+```text
+DB_PATH=/app/videocall.db
+```
+
+Nếu file database nằm trong filesystem của container/Fargate task, nó không bền vững.
+
+Khi xảy ra một trong các việc sau:
+
+- ECS task restart.
+- Deploy image mới.
+- Service scale down/up.
+- Fargate host thay đổi.
+
+file trong container có thể mất.
+
+Nếu service chết thì lấy lại file thế nào?
+
+- Nếu file chỉ nằm trong container filesystem, gần như không nên kỳ vọng lấy lại được.
+- Có thể debug tạm khi task còn sống bằng ECS Exec nếu đã bật, nhưng đây không phải backup.
+- Cách đúng là không lưu dữ liệu quan trọng trong container filesystem.
+
+Các hướng đúng hơn:
+
+### Dùng RDS
+
+Phù hợp nhất cho database production:
+
+```text
+Backend -> RDS PostgreSQL/MySQL
+```
+
+Ưu điểm:
+
+- Dữ liệu bền vững.
+- Có backup/snapshot.
+- Chạy ổn hơn SQLite cho nhiều user.
+
+### Dùng EFS
+
+Nếu vẫn muốn dùng file database hoặc file upload:
+
+```text
+ECS task -> mount EFS -> /app
+```
+
+Ưu điểm:
+
+- File tồn tại ngoài vòng đời container.
+- Task restart vẫn thấy file.
+
+Nhược điểm:
+
+- SQLite trên network filesystem cần cẩn thận về locking/concurrency.
+- Với app production, RDS vẫn là lựa chọn tốt hơn cho database.
+
+### Dùng S3
+
+S3 phù hợp để lưu object/file, ví dụ:
+
+- Avatar.
+- File upload.
+- Recording.
+- Backup file.
+
+S3 không phù hợp để mount trực tiếp làm database đang ghi liên tục như SQLite/MDB.
+
+Nếu muốn backup file database lên S3, app hoặc cron job có thể định kỳ upload:
+
+```text
+/app/videocall.db -> s3://bucket/backups/videocall.db
+```
+
+Nhưng đây là backup kiểu snapshot, không phải database storage realtime.
+
+Khuyến nghị:
+
+```text
+Database thật: dùng RDS.
+File dùng chung: dùng S3.
+File cần mount vào container: dùng EFS.
+Demo nhanh: SQLite trong container được, nhưng chấp nhận mất data khi task chết.
+```
+
+## 26. Tóm Tắt Dễ Nhớ
 
 ```text
 Registrar giữ quyền sở hữu domain.
@@ -625,4 +1293,10 @@ ACM cấp certificate để ALB chạy HTTPS.
 ALB nhận HTTPS/WSS và forward HTTP vào ECS frontend.
 Frontend Nginx proxy API/WebSocket sang backend.
 Backend không cần public ra internet.
+Task definition là bản thiết kế.
+Task ARN là task đang chạy.
+VPC là mạng riêng.
+Subnet là vùng mạng nhỏ trong VPC.
+Security group là firewall inbound/outbound.
+Container filesystem không phải nơi lưu database bền vững.
 ```

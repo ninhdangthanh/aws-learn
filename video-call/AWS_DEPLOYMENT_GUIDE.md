@@ -133,13 +133,17 @@ Cần có:
 - AWS account.
 - AWS CLI đã configure.
 - GitHub repo chứa code.
-- Domain hoặc subdomain quản lý bằng Route 53 hosted zone.
+- VPC và subnets để đặt ALB/ECS.
+- Security groups cho ALB và ECS service.
+- Domain hoặc subdomain. Domain có thể mua ở Route 53 hoặc mua ngoài AWS như INET.
+- Route 53 hosted zone để quản lý DNS records của domain.
 - ACM certificate cho domain ở region `ap-southeast-1`.
 - 2 ECR repositories để chứa Docker images.
 - CloudWatch log group.
 - SSM Parameter Store để lưu secret.
 - ECS cluster.
 - Application Load Balancer.
+- Target group cho frontend.
 - ECS service.
 
 Nên có sau nếu muốn video call ổn định:
@@ -552,6 +556,16 @@ videocall-alb-123456.ap-southeast-1.elb.amazonaws.com
 
 **Step này để làm gì:** trỏ domain của bạn vào ALB bằng DNS.
 
+Route 53 không chỉ là nơi bán domain. Trong guide này cần phân biệt:
+
+```text
+Route 53 Domains      -> mua/gia hạn/chuyển domain
+Route 53 Hosted Zones -> quản lý DNS records
+Route 53 Records      -> A, A Alias, CNAME, MX, TXT...
+```
+
+Nếu domain mua ở ngoài AWS, ví dụ INET, bạn vẫn dùng được Route 53 Hosted Zone bình thường. Khác biệt chính là bạn phải vào trang quản lý domain ở INET để đổi nameserver sang 4 nameserver mà Route 53 cấp.
+
 Nếu domain mua ở Route 53:
 
 1. Vào **Route 53** -> **Hosted zones**.
@@ -592,6 +606,15 @@ Nếu domain mua ở nơi khác nhưng muốn dùng Route 53 DNS:
 5. Chờ DNS propagate.
 
 Sau đó vẫn tạo Alias A/AAAA record về ALB như trên.
+
+Với project `ninh-video-call-demo.food`:
+
+```text
+Domain mua ở: INET
+DNS quản lý ở: Route 53 Hosted Zone
+```
+
+Vì vậy phần deploy AWS phía sau vẫn giống guide này: ACM, A Alias, ALB, target group và ECS không khác gì so với domain mua trực tiếp trong Route 53.
 
 ## 16. GitHub Actions CI/CD Build Và Push Image Lên ECR
 
@@ -741,7 +764,342 @@ Nếu WebSocket fail:
 - Kiểm tra Nginx `/ws` vẫn giữ `Upgrade` và `Connection`.
 - Kiểm tra backend logs có request `/ws` không.
 
-## 20. TURN Cho WebRTC
+## 20. Hiện Trạng Frontend Và Backend Trong Project
+
+**Step này để làm gì:** hiểu chính xác app hiện đang chạy chung hay tách riêng, và frontend gọi backend bằng đường nào.
+
+Hiện tại backend và frontend đang chạy trong cùng một ECS task, thuộc cùng một ECS service:
+
+```text
+ECS cluster:  videocall-cluster
+ECS service:  videocall-service
+Task family:  videocall-task
+```
+
+Task có 2 container:
+
+```text
+backend container  :8080
+frontend container :80
+```
+
+Task definition đang dùng:
+
+```json
+"networkMode": "awsvpc"
+```
+
+Frontend container có env:
+
+```json
+"BACKEND_URL": "http://localhost:8080"
+```
+
+Điều này đúng vì frontend và backend nằm trong cùng task. Frontend Nginx proxy:
+
+```text
+/api -> http://localhost:8080
+/ws  -> http://localhost:8080
+```
+
+Browser không gọi thẳng backend. Browser gọi cùng domain:
+
+```text
+https://call.example.com/api/...
+wss://call.example.com/ws
+```
+
+Sau đó request đi:
+
+```text
+Browser
+  -> ALB HTTPS :443
+  -> frontend Nginx :80
+  -> backend :8080
+```
+
+## 21. Có Thể Tách Frontend Và Backend Thành 2 ECS Service Không?
+
+**Step này để làm gì:** biết khi nào nên giữ chung service và khi nào nên tách service.
+
+Có thể tách thành 2 ECS service cùng thuộc một cluster:
+
+```text
+ECS cluster: videocall-cluster
+
+Service frontend:
+  task: frontend-task
+  container: frontend :80
+  gắn với ALB public target group
+
+Service backend:
+  task: backend-task
+  container: backend :8080
+  có thể private hoặc gắn target group riêng
+```
+
+Khi tách service, `BACKEND_URL=http://localhost:8080` không còn đúng nữa.
+
+Có 2 hướng phổ biến:
+
+### Route bằng ALB
+
+Tạo 2 target groups:
+
+```text
+frontend target group: port 80
+backend target group:  port 8080
+```
+
+Listener rules:
+
+```text
+/api/* -> backend target group
+/ws*   -> backend target group
+/*     -> frontend target group
+```
+
+Khi đó browser vẫn gọi same-origin:
+
+```text
+https://call.example.com/api/...
+wss://call.example.com/ws
+```
+
+nhưng ALB route trực tiếp sang backend service.
+
+### Service discovery nội bộ
+
+Dùng ECS Service Connect hoặc AWS Cloud Map để backend có DNS nội bộ, ví dụ:
+
+```text
+http://backend.videocall.local:8080
+```
+
+Frontend Nginx khi đó dùng:
+
+```text
+BACKEND_URL=http://backend.videocall.local:8080
+```
+
+Với project demo hiện tại, để chung một service vẫn hợp lý. Khi cần scale frontend/backend độc lập, hãy tách service.
+
+## 22. ALB Hay API Gateway?
+
+**Step này để làm gì:** so sánh đúng vai trò để không thêm API Gateway khi chưa cần.
+
+ALB phù hợp với app container trên ECS:
+
+- Route HTTP/HTTPS theo host/path.
+- Hỗ trợ WebSocket.
+- Gắn trực tiếp với ECS target group.
+- Phù hợp để serve frontend và route API/WebSocket.
+
+API Gateway phù hợp khi cần quản lý API chuyên sâu:
+
+- Rate limit/throttling.
+- API key.
+- Authorizer.
+- Stage/version API.
+- Transform request/response.
+- Tích hợp Lambda hoặc HTTP backend.
+
+API Gateway có thể đưa vào không?
+
+Có, nhưng hiện tại không bắt buộc. Với app này, ALB đã đủ để route:
+
+```text
+Frontend: /
+API:      /api/*
+WS:       /ws
+```
+
+Nếu sau này cần API key, rate limit, authorizer riêng, hoặc muốn tách API management khỏi ALB, lúc đó hãy cân nhắc API Gateway.
+
+## 23. Terraform Import/Export Hạ Tầng Đã Click Trên AWS
+
+**Step này để làm gì:** đưa hạ tầng đã tạo bằng Console về Infrastructure as Code.
+
+Terraform không tự biết tài nguyên bạn đã click tạo trên AWS. Có 3 hướng:
+
+### Viết Terraform rồi import
+
+Ví dụ:
+
+```hcl
+resource "aws_lb" "videocall" {
+  name = "videocall-alb"
+}
+```
+
+Import ALB thật vào state:
+
+```bash
+terraform import aws_lb.videocall arn:aws:elasticloadbalancing:ap-southeast-1:<ACCOUNT_ID>:loadbalancer/app/videocall-alb/...
+```
+
+Sau đó chạy:
+
+```bash
+terraform plan
+```
+
+và bổ sung config cho khớp với hạ tầng thật.
+
+### Dùng import block
+
+```hcl
+import {
+  to = aws_lb.videocall
+  id = "arn:aws:elasticloadbalancing:ap-southeast-1:<ACCOUNT_ID>:loadbalancer/app/videocall-alb/..."
+}
+```
+
+### Dùng tool generate
+
+Có thể dùng tool như `terraformer` để generate Terraform từ AWS account, sau đó review lại.
+
+Nhóm tài nguyên nên đưa vào Terraform:
+
+- VPC/subnets/route tables nếu muốn quản lý network.
+- Security groups.
+- ALB, listeners, listener rules.
+- Target groups.
+- Route 53 hosted zone/records.
+- ACM certificate/validation records.
+- ECR repositories.
+- ECS cluster/service.
+- IAM role/policies.
+- CloudWatch log group.
+- SSM parameter metadata.
+
+Khuyến nghị:
+
+```text
+Terraform quản lý hạ tầng nền.
+GitHub Actions quản lý build image và deploy revision mới.
+```
+
+Nếu Terraform quản lý cả ECS service, cần tránh để Terraform rollback image tag mà GitHub Actions vừa deploy.
+
+## 24. VPC, Subnet, Security Group, Task Definition Và Dữ Liệu
+
+**Step này để làm gì:** nắm các khái niệm AWS hay gặp khi debug ECS.
+
+VPC là mạng riêng ảo trong AWS account:
+
+```text
+VPC = private network của bạn trên AWS
+```
+
+Subnet là một vùng mạng nhỏ trong VPC, thường nằm trong một Availability Zone.
+
+- ALB internet-facing thường nằm ở public subnets.
+- ECS task production thường nên nằm ở private subnets.
+- Nếu ECS task ở private subnet, cần NAT Gateway hoặc VPC endpoints để pull ECR image, ghi CloudWatch logs, đọc SSM.
+
+Security group là firewall:
+
+```text
+Inbound  = traffic đi vào resource
+Outbound = traffic đi ra khỏi resource
+```
+
+ALB security group nên mở:
+
+```text
+Inbound:
+  TCP 80, 443 từ internet
+```
+
+ECS service security group nên mở:
+
+```text
+Inbound:
+  TCP 80 từ ALB security group
+```
+
+Không cần mở backend `8080` ra internet.
+
+Task definition là bản thiết kế container. Khi chạy:
+
+```bash
+aws ecs register-task-definition \
+  --cli-input-json file://video-call/.aws/task-definition.json \
+  --region ap-southeast-1
+```
+
+AWS tạo task definition revision mới, ví dụ:
+
+```text
+arn:aws:ecs:ap-southeast-1:<ACCOUNT_ID>:task-definition/videocall-task:12
+```
+
+Task ARN là task đang chạy cụ thể:
+
+```text
+arn:aws:ecs:ap-southeast-1:<ACCOUNT_ID>:task/videocall-cluster/abc123...
+```
+
+So sánh:
+
+```text
+Task definition ARN = bản thiết kế.
+Task ARN            = instance đang chạy từ bản thiết kế.
+```
+
+Về dữ liệu:
+
+Hiện backend dùng SQLite:
+
+```text
+DB_PATH=/app/videocall.db
+```
+
+Nếu file nằm trong container filesystem, nó không bền vững. Khi task restart/deploy lại, file có thể mất.
+
+Các lựa chọn tốt hơn:
+
+- RDS: phù hợp nhất cho database production.
+- EFS: mount filesystem bền vững vào ECS task, dùng được cho file nhưng cần cẩn thận nếu dùng SQLite.
+- S3: phù hợp lưu object/file/backup, không phù hợp làm database realtime.
+
+Nếu muốn backup file database lên S3, app hoặc job riêng có thể định kỳ upload snapshot:
+
+```text
+/app/videocall.db -> s3://bucket/backups/videocall.db
+```
+
+Nhưng backup lên S3 không thay thế RDS cho database đang ghi liên tục.
+
+## 25. Các AWS Service/Tài Nguyên Đang Dùng
+
+**Step này để làm gì:** checklist đủ các mảnh ghép đang có trong kiến trúc.
+
+Đã dùng:
+
+- ECS: chạy service/task container.
+- ECR: lưu Docker images.
+- EC2 Application Load Balancer: entrypoint HTTPS/WSS.
+- EC2 Target Group: nơi ALB forward traffic.
+- EC2 Security Group: firewall cho ALB/ECS.
+- IAM Role: `ecsTaskExecutionRole`.
+- Route 53 Hosted Zone: DNS domain.
+- ACM: HTTPS certificate.
+- SSM Parameter Store: runtime secrets.
+- CloudWatch Logs: container logs.
+
+Cần hiểu/thêm nếu production:
+
+- VPC/subnets/route tables.
+- NAT Gateway hoặc VPC endpoints nếu ECS chạy private subnet.
+- RDS hoặc EFS nếu cần data bền vững.
+- AWS Backup nếu dùng RDS/EFS production.
+- WAF nếu muốn bảo vệ ALB.
+- Terraform nếu muốn quản lý hạ tầng bằng code.
+- CloudTrail để audit thay đổi trong AWS account.
+
+## 26. TURN Cho WebRTC
 
 **Step này để làm gì:** WebSocket chỉ dùng để signaling. Video/audio thật sự đi qua WebRTC, và nhiều network cần TURN để call ổn định.
 
@@ -801,7 +1159,7 @@ Nếu tự chạy `coturn` trên EC2:
 - Cấu hình user/password và realm.
 - Theo dõi bandwidth vì media relay có thể tốn nhiều traffic.
 
-## 21. SQLite Persistence
+## 27. SQLite Persistence
 
 **Step này để làm gì:** tránh hiểu nhầm rằng deploy ECS xong là data đã bền vững.
 
@@ -824,7 +1182,7 @@ Cho production:
 
 Khuyến nghị: nếu app dùng thật, chuyển database sang RDS.
 
-## 22. Checklist Sau Khi Deploy
+## 28. Checklist Sau Khi Deploy
 
 **Step này để làm gì:** kiểm tra theo thứ tự để biết lỗi nằm ở DNS, ALB, ECS, API, WebSocket hay WebRTC.
 
@@ -860,7 +1218,7 @@ Kiểm tra WebRTC:
 - Nếu mạng khó, TURN server có traffic.
 - Nếu không có TURN, thử lại trên cùng WiFi hoặc mạng đơn giản hơn để phân biệt lỗi app và lỗi NAT.
 
-## 23. Lỗi Thường Gặp
+## 29. Lỗi Thường Gặp
 
 **Step này để làm gì:** có bảng debug nhanh khi deploy không chạy ngay lần đầu.
 
@@ -965,7 +1323,7 @@ Nguyên nhân thường gặp:
 - SSM parameter sai region/account.
 - CloudWatch log group chưa tồn tại.
 
-## 24. Thứ Tự Làm Nhanh Từ Con Số 0
+## 30. Thứ Tự Làm Nhanh Từ Con Số 0
 
 **Step này để làm gì:** checklist tổng hợp nếu bạn muốn làm theo một mạch.
 
@@ -995,7 +1353,7 @@ Nguyên nhân thường gặp:
 24. Test video call.
 25. Nếu video không ổn định, cấu hình TURN thật.
 
-## 25. Tài Liệu Tham Khảo
+## 31. Tài Liệu Tham Khảo
 
 - [Route 53 - Routing traffic to an ELB load balancer](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-load-balancer.html)
 - [AWS Certificate Manager - DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html)
