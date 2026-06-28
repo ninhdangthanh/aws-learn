@@ -25,5 +25,6 @@ ENV STUN_URLS=""
 ENV TURN_URLS=""
 ENV TURN_USERNAME=""
 ENV TURN_CREDENTIAL=""
+ENV ICE_TRANSPORT_POLICY="all"
 
-CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && envsubst '${API_URL} ${WS_URL} ${STUN_URLS} ${TURN_URLS} ${TURN_USERNAME} ${TURN_CREDENTIAL}' < /etc/nginx/templates/env-config.template.js > /usr/share/nginx/html/env-config.js && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && envsubst '${API_URL} ${WS_URL} ${STUN_URLS} ${TURN_URLS} ${TURN_USERNAME} ${TURN_CREDENTIAL} ${ICE_TRANSPORT_POLICY}' < /etc/nginx/templates/env-config.template.js > /usr/share/nginx/html/env-config.js && nginx -g 'daemon off;'"]

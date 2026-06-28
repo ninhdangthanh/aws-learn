@@ -122,6 +122,7 @@ export function useWebRTC(
     // Handle ICE candidates (UDP connection establishment)
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log('ICE candidate gathered:', event.candidate.type, event.candidate.protocol)
         sendMessage({
           type: 'ice-candidate',
           from: userId,
@@ -132,9 +133,21 @@ export function useWebRTC(
       }
     }
 
+    pc.onicecandidateerror = (event) => {
+      console.error('ICE candidate error:', {
+        url: event.url,
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+      })
+    }
+
+    pc.onconnectionstatechange = () => {
+      console.log('Peer connection state:', pc.connectionState)
+    }
+
     pc.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', pc.iceConnectionState)
-      if (pc.iceConnectionState === 'connected') {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setCallStatus('connected')
       } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
         endCall()

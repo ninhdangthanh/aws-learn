@@ -8,5 +8,6 @@ interface Window {
     TURN_URLS?: string
     TURN_USERNAME?: string
     TURN_CREDENTIAL?: string
+    ICE_TRANSPORT_POLICY?: 'all' | 'relay'
   }
 }
