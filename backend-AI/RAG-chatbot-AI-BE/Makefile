@@ -1,48 +1,38 @@
-# Makefile for RAG chatbot backend
+.PHONY: run-api run-worker build test tidy migrate-up migrate-down docker-up docker-down
 
-.PHONY: run-api run-worker migrate-up migrate-down docker-up docker-down build test tidy
+ifneq (,$(wildcard ./.env))
+include .env
+export
+endif
+
+GO ?= go
+COMPOSE ?= docker compose
+MIGRATE ?= $(GO) run -tags=postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
 
 run-api:
-	go run ./cmd/api
+	$(GO) run ./cmd/api
 
 run-worker:
-	go run ./cmd/worker
+	$(GO) run ./cmd/worker
 
 build:
-	go build ./cmd/api
-	go build ./cmd/worker
-
-tidy:
-	go mod tidy
-
-migrate-up:
-	migrate -path db/migrations -database "$(POSTGRES_DSN)" up
-
-migrate-down:
-	migrate -path db/migrations -database "$(POSTGRES_DSN)" down
-
-docker-up:
-	docker-compose up -d
-
-docker-down:
-	docker-compose down
+	$(GO) build ./cmd/api
+	$(GO) build ./cmd/worker
 
 test:
-	go test ./...
+	$(GO) test ./...
 
+tidy:
+	$(GO) mod tidy
 
-# Frontend helpers
-.PHONY: run-frontend dev
+migrate-up:
+	$(MIGRATE) -path db/migrations -database "$(POSTGRES_DSN)" up
 
-run-frontend:
-	@echo "Starting frontend (will install deps if needed)"
-	cd frontend && npm install && npm run dev
+migrate-down:
+	$(MIGRATE) -path db/migrations -database "$(POSTGRES_DSN)" down
 
-# Run API in background and frontend in foreground (simple dev helper)
-dev: 
-	@echo "Running API in background and frontend in foreground"
-	# start api in background
-	(go run ./cmd/api) &
-	# give API a moment to start
-	sleep 1
-	cd frontend && npm install && npm run dev
+docker-up:
+	$(COMPOSE) up -d
+
+docker-down:
+	$(COMPOSE) down

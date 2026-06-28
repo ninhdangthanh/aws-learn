@@ -173,7 +173,7 @@ Chunk + Embed
 | LLM             | GPT-4.1 / Claude              |
 | PDF parsing     | unidoc / pdfcpu               |
 | DOCX parsing    | unioffice                     |
-| ORM             | sqlc hoặc GORM                |
+| ORM             | GORM                          |
 | Queue           | Redis                         |
 | Storage         | PostgreSQL                    |
 | Container       | Docker                        |
@@ -221,8 +221,8 @@ Extract:
 Strategy:
 
 ```text
-chunk_size = 500 tokens
-overlap = 100
+chunk_size = 200 tokens
+overlap = 40
 ```
 
 Metadata:

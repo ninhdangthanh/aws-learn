@@ -134,7 +134,7 @@ sequenceDiagram
 | DOCX parsing | `unioffice` | Deferred until after MVP |
 | RDBMS | PostgreSQL | Metadata, document state, chat history |
 | Queue/cache | Redis | Asynq backend and optional query cache |
-| SQL layer | sqlc | Type-safe SQL with explicit queries |
+| SQL layer | GORM | Faster CRUD development for the demo |
 | Migration | golang-migrate | Simple file-based migrations |
 | Config | Viper | Env and config-file support |
 | Logging | zerolog | Structured JSON logging |
@@ -416,12 +416,11 @@ rag-chatbot/
 │   └── worker/
 ├── db/
 │   └── migrations/
-├── queries/
+├── internal/model/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── Makefile
 ├── go.mod
-├── sqlc.yaml
 ├── .env.example
 └── README.md
 ```
@@ -432,9 +431,9 @@ rag-chatbot/
 
 Document ingestion is multi-step and should survive API crashes. Asynq gives persistent Redis-backed queues, retries, scheduling, and job visibility.
 
-### sqlc over GORM
+### GORM for repository speed
 
-For this learning project, explicit SQL is more educational and predictable. `sqlc` still gives type-safe generated code.
+For this demo project, GORM keeps repository code compact and easy to evolve. Schema changes still go through `golang-migrate`, so the database structure remains explicit and reviewable.
 
 ### Separate API and worker binaries
 
@@ -443,11 +442,11 @@ For this learning project, explicit SQL is more educational and predictable. `sq
 ### Chunking defaults
 
 ```text
-chunk_size = 500 tokens
-overlap = 100 tokens
+chunk_size = 200 tokens
+overlap = 40 tokens
 ```
 
-This is large enough to retain context and small enough for precise retrieval. Each chunk should carry `document_id`, `page_number`, and `chunk_index` for citations.
+This keeps chunks focused for precise retrieval while preserving about 20% continuity across chunk boundaries. Each chunk should carry `document_id`, `page_number`, and `chunk_index` for citations.
 
 ### Prompting approach
 

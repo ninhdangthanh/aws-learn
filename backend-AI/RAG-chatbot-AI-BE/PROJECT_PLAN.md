@@ -10,11 +10,11 @@
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 1.1 | Project scaffold | `go mod init`, folder structure, `cmd/api`, `cmd/worker`, `internal/*` | [ ] |
-| 1.2 | Makefile | `run-api`, `run-worker`, `test`, `migrate-up`, `docker-up` | [ ] |
-| 1.3 | Environment config | `.env.example`, Viper config loading | [ ] |
-| 1.4 | Docker Compose | PostgreSQL 16 + Redis 7 + Qdrant latest | [ ] |
-| 1.5 | App bootstrap | API starts and returns a simple health response | [ ] |
+| 1.1 | Project scaffold | `go mod init`, folder structure, `cmd/api`, `cmd/worker`, `internal/*` | [x] |
+| 1.2 | Makefile | `run-api`, `run-worker`, `test`, `migrate-up`, `docker-up` | [x] |
+| 1.3 | Environment config | `.env.example`, Viper config loading | [x] |
+| 1.4 | Docker Compose | PostgreSQL 16 + Redis 7 + Qdrant latest | [x] |
+| 1.5 | App bootstrap | API starts and returns a simple health response | [x] |
 
 Acceptance criteria:
 
@@ -28,11 +28,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 2.1 | DB migrations | `documents`, `chunks`, `chat_sessions`, `chat_messages` | [ ] |
-| 2.2 | sqlc setup | `sqlc.yaml`, query files, generated Go code | [ ] |
-| 2.3 | Document repository | Create, get, list, update status | [ ] |
-| 2.4 | Chunk repository | Bulk insert chunks, get chunks by document | [ ] |
-| 2.5 | Chat repository skeleton | Sessions and messages basic methods | [ ] |
+| 2.1 | DB migrations | `documents`, `chunks`, `chat_sessions`, `chat_messages` | [x] |
+| 2.2 | GORM setup | models, DB connection, repository wiring | [x] |
+| 2.3 | Document repository | Create, get, list, update status | [x] |
+| 2.4 | Chunk repository | Bulk insert chunks, get chunks by document | [x] |
+| 2.5 | Chat repository skeleton | Sessions and messages basic methods | [x] |
 
 Acceptance criteria:
 
@@ -46,11 +46,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 3.1 | Router + middleware | Gin router, recovery, request logging | [ ] |
-| 3.2 | Upload endpoint | `POST /api/v1/documents`, save file, create DB record | [ ] |
-| 3.3 | Status endpoint | `GET /api/v1/documents/:id` | [ ] |
-| 3.4 | File validation | PDF only for MVP, size limit, error response | [ ] |
-| 3.5 | Upload smoke test | Test with `curl -F "file=@..."` | [ ] |
+| 3.1 | Router + middleware | Gin router, recovery, request logging | [x] |
+| 3.2 | Upload endpoint | `POST /api/v1/documents`, save file, create DB record | [x] |
+| 3.3 | Status endpoint | `GET /api/v1/documents/:id` | [x] |
+| 3.4 | File validation | PDF only for MVP, size limit, error response | [x] |
+| 3.5 | Upload smoke test | Test with `curl -F "file=@..."` | [x] |
 
 Acceptance criteria:
 
@@ -64,11 +64,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 4.1 | Parser interface | Common interface for PDF now, DOCX later | [ ] |
-| 4.2 | PDF parser | Extract text and page numbers | [ ] |
-| 4.3 | Chunker | 500-token chunks, 100-token overlap | [ ] |
-| 4.4 | Save chunks | Persist content, page, chunk index, token count | [ ] |
-| 4.5 | Unit tests | Parser/chunker behavior with small fixture | [ ] |
+| 4.1 | Parser interface | Common interface for PDF now, DOCX later | [x] |
+| 4.2 | PDF parser | Extract text and page numbers | [x] |
+| 4.3 | Chunker | 500-token chunks, 100-token overlap | [x] |
+| 4.4 | Save chunks | Persist content, page, chunk index, token count | [x] |
+| 4.5 | Unit tests | Parser/chunker behavior with small fixture | [x] |
 
 Acceptance criteria:
 
@@ -82,17 +82,18 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 5.1 | Asynq setup | Client in API, server in worker binary | [ ] |
-| 5.2 | Parse job payload | Include document ID and file path | [ ] |
-| 5.3 | Enqueue parse job | Upload endpoint creates job | [ ] |
-| 5.4 | Parse worker | Parse file, chunk text, save chunks | [ ] |
-| 5.5 | Failure handling | Set `failed` status and `error_msg` | [ ] |
+| 5.1 | Asynq setup | Client in API, server in worker binary | [x] |
+| 5.2 | Parse job payload | Include document ID and file path | [x] |
+| 5.3 | Enqueue parse job | Upload endpoint creates job | [x] |
+| 5.4 | Parse worker | Parse file, chunk text, save chunks | [x] |
+| 5.5 | Failure handling | Set `failed` status and `error_msg` | [x] |
 
 Acceptance criteria:
 
 - Upload returns quickly while worker processes in background.
 - Status moves `pending -> parsing -> chunked`.
 - Failed parsing is visible through status endpoint.
+- Parse processing is idempotent: already-`chunked` documents are skipped, and retries replace prior chunks before re-inserting.
 
 ### Phase 6 - Embedding & Vector Indexing
 
@@ -100,12 +101,12 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 6.1 | Embedding service | Reusable `text -> vector` OpenAI client | [ ] |
-| 6.2 | Qdrant collection init | Auto-create collection on startup | [ ] |
-| 6.3 | Vector repository | Upsert points, delete by document, search skeleton | [ ] |
-| 6.4 | Embed job | Enqueue after parse job succeeds | [ ] |
-| 6.5 | Embedding worker | Batch embed chunks and upsert vectors | [ ] |
-| 6.6 | Store vector IDs | Save Qdrant point IDs on chunk records | [ ] |
+| 6.1 | Embedding service | Reusable `text -> vector` OpenAI client | [x] |
+| 6.2 | Qdrant collection init | Auto-create collection on startup | [x] |
+| 6.3 | Vector repository | Upsert points, delete by document, search skeleton | [x] |
+| 6.4 | Embed job | Enqueue after parse job succeeds | [x] |
+| 6.5 | Embedding worker | Batch embed chunks and upsert vectors | [x] |
+| 6.6 | Store vector IDs | Save Qdrant point IDs on chunk records | [x] |
 
 Acceptance criteria:
 
@@ -119,11 +120,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 7.1 | Query embedding | Embed the search query | [ ] |
-| 7.2 | Qdrant search | Similarity search with `top_k` and threshold | [ ] |
-| 7.3 | Search service | Map Qdrant results to API response | [ ] |
-| 7.4 | Search endpoint | `POST /api/v1/search` | [ ] |
-| 7.5 | Manual relevance test | Test with known document questions | [ ] |
+| 7.1 | Query embedding | Embed the search query | [x] |
+| 7.2 | Qdrant search | Similarity search with `top_k` and threshold | [x] |
+| 7.3 | Search service | Map Qdrant results to API response | [x] |
+| 7.4 | Search endpoint | `POST /api/v1/search` | [x] |
+| 7.5 | Manual relevance test | Test with known document questions | [x] |
 
 Acceptance criteria:
 
@@ -205,3 +206,23 @@ Acceptance criteria:
 - Delete cleans PostgreSQL and Qdrant.
 - README has tested commands.
 - Full demo flow works end-to-end.
+
+### Phase 12 - Frontend React & User Experience
+
+> Goal: Build a minimal responsive SPA for upload, status, search, and chat.
+
+| # | Task | Details | Done |
+|---|------|---------|------|
+| 12.1 | React scaffold | Minimal Vite React app with a few pages | [ ] |
+| 12.2 | Upload page | File input + upload button, show status from API | [ ] |
+| 12.3 | Status list | Simple list of documents and status badges | [ ] |
+| 12.4 | Chat/search page | Ask question and show answer with citations | [ ] |
+| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [ ] |
+| 12.6 | Deploy static build | Deploy as static files on EC2/S3/CloudFront | [ ] |
+
+Acceptance criteria:
+
+- Browser can upload PDF and see document status.
+- Chat/search flows work from a single lightweight SPA.
+- UI is usable on mobile and desktop.
+- Deployment path is documented for static hosting.

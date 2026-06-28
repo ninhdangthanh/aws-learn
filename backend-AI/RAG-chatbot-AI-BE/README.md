@@ -4,6 +4,8 @@
 
 Checklist triển khai 7 ngày: [docs/mvp-7-day-plan.md](./docs/mvp-7-day-plan.md).
 
+AWS deployment plan: [docs/aws-deployment-plan.md](./docs/aws-deployment-plan.md).
+
 > An Internal Document QA System powered by Retrieval-Augmented Generation (RAG), built with Go.
 >
 > Upload PDF documents → Ask questions in natural language → Get accurate answers with citations.
@@ -78,9 +80,16 @@ AI:   "According to the refund policy document, delivery order refunds
 **Document Upload Flow:**
 
 1. Client uploads a PDF → API saves metadata to PostgreSQL
-2. Parse Worker extracts text and splits into chunks (500 tokens, 100 overlap)
+2. Parse Worker extracts text and splits into chunks (200 tokens, 40 overlap)
 3. Embed Worker converts chunks to vectors via OpenAI Embedding API
 4. Vectors are stored in Qdrant with document metadata
+
+Current async parsing notes:
+
+- Upload returns after enqueuing a parse job
+- Worker status flow is `pending -> parsing -> chunked`
+- If parsing fails, document status becomes `failed`
+- Parse jobs are idempotent: already `chunked` documents are skipped, and retries replace existing chunks before inserting again
 
 **Chat Flow:**
 
@@ -104,7 +113,7 @@ AI:   "According to the refund policy document, delivery order refunds
 | PDF Parsing | pdfcpu / unipdf |
 | Database | PostgreSQL (metadata + chat history) |
 | Queue / Cache | Redis |
-| SQL Layer | sqlc (type-safe, generated) |
+| SQL Layer | GORM |
 | Containerization | Docker + docker-compose |
 
 ---
@@ -154,7 +163,7 @@ make run-api
 make run-worker
 ```
 
-The API server starts on `http://localhost:8080`.
+The API server starts on `http://localhost:8099`.
 
 ---
 
@@ -163,7 +172,7 @@ The API server starts on `http://localhost:8080`.
 ### Upload a Document
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/documents \
+curl -X POST http://localhost:8099/api/v1/documents \
   -F "file=@your-document.pdf"
 ```
 
@@ -179,7 +188,7 @@ Response:
 ### Check Document Status
 
 ```bash
-curl http://localhost:8080/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
+curl http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
 ```
 
 Wait for status to become `ready` (pending → parsing → chunked → embedding → ready).
@@ -187,7 +196,7 @@ Wait for status to become `ready` (pending → parsing → chunked → embedding
 ### Search Documents
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/search \
+curl -X POST http://localhost:8099/api/v1/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is the refund policy?",
@@ -198,7 +207,7 @@ curl -X POST http://localhost:8080/api/v1/search \
 ### Ask a Question
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/chat \
+curl -X POST http://localhost:8099/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "What is the refund policy for delivery orders?",
@@ -228,7 +237,7 @@ Response:
 ### Streaming Response (SSE)
 
 ```bash
-curl -N -X POST http://localhost:8080/api/v1/chat \
+curl -N -X POST http://localhost:8099/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "What is the refund policy?",
@@ -239,7 +248,7 @@ curl -N -X POST http://localhost:8080/api/v1/chat \
 ### Health Check
 
 ```bash
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8099/api/v1/health
 ```
 
 ---
@@ -288,18 +297,23 @@ Document ingestion is a multi-step pipeline (parse → chunk → embed) that mus
 
 Goroutines alone can't provide these guarantees. Asynq (Redis-backed) gives us persistent, retryable, observable job processing.
 
-### Why 500-token chunks with 100-token overlap?
+To make retries safe, the parse worker is idempotent:
 
-- **500 tokens**: Large enough to contain meaningful context, small enough for precise retrieval
-- **100-token overlap**: Prevents cutting sentences at chunk boundaries, ensures continuity across chunks
-- This is a common starting point — the optimal size depends on your document types
+- it skips documents that are already `chunked`
+- it deletes existing chunks for the document before re-inserting on retry
 
-### Why sqlc instead of GORM?
+### Why 200-token chunks with 40-token overlap?
 
-sqlc generates type-safe Go code from raw SQL queries. This means:
-- Full control over queries (no ORM magic)
-- Compile-time type safety
-- More educational — you write and understand the actual SQL
+- **200 tokens**: Focused enough for precise semantic retrieval while still carrying local context
+- **40-token overlap**: Keeps about 20% continuity across chunk boundaries without creating too much duplicate text
+- This is a practical MVP starting point; tune upward for long policy sections or downward for FAQ-style documents
+
+### Why GORM for this demo?
+
+GORM is a better fit for this repo's current pace:
+- Fast CRUD scaffolding for early product phases
+- Less generator/setup overhead while the API is still evolving
+- Still paired with `golang-migrate`, so schema changes stay explicit
 
 ---
 
@@ -323,15 +337,18 @@ sqlc generates type-safe Go code from raw SQL queries. This means:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | API server port | `8080` |
+| `PORT` | API server port | `8099` |
 | `OPENAI_API_KEY` | OpenAI API key | (required) |
 | `OPENAI_EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
-| `OPENAI_LLM_MODEL` | LLM model | `gpt-4.1-mini` |
+| `OPENAI_EMBEDDING_DIMENSIONS` | Embedding vector size | `1536` |
+| `OPENAI_CHAT_MODEL` | LLM model | `gpt-4.1-mini` |
 | `POSTGRES_DSN` | PostgreSQL connection string | `postgres://user:pass@localhost:5432/ragchatbot?sslmode=disable` |
 | `REDIS_ADDR` | Redis address | `localhost:6379` |
-| `QDRANT_ADDR` | Qdrant gRPC address | `localhost:6334` |
-| `CHUNK_SIZE` | Tokens per chunk | `500` |
-| `CHUNK_OVERLAP` | Token overlap between chunks | `100` |
+| `QDRANT_URL` | Qdrant HTTP URL | `http://localhost:6333` |
+| `QDRANT_HOST` | Qdrant gRPC host | `localhost` |
+| `QDRANT_GRPC_PORT` | Qdrant gRPC port | `6334` |
+| `CHUNK_SIZE` | Tokens per chunk | `200` |
+| `CHUNK_OVERLAP` | Token overlap between chunks | `40` |
 | `SEARCH_TOP_K` | Default number of results | `5` |
 
 ---

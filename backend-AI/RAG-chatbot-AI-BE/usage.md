@@ -24,7 +24,7 @@ docker-compose up -d
 
 ```bash
 make migrate-up
-# or use golang-migrate directly if configured
+# or use golang-migrate directly if needed
 ```
 
 4. Run the API server and worker in separate terminals:
@@ -37,7 +37,7 @@ go run ./cmd/api
 go run ./cmd/worker
 ```
 
-By default the API listens on port `8080`. Endpoints:
+By default the API listens on port `8099`. Endpoints:
 - `POST /api/v1/documents` — upload file (multipart/form-data `file`)
 - `GET /api/v1/documents` — list
 - `GET /api/v1/documents/:id` — status
@@ -62,10 +62,10 @@ npm install
 npm run dev
 ```
 
-The frontend defaults to `http://localhost:8080` for the API. To change, create a `.env` file under `/frontend` with:
+The frontend defaults to `http://localhost:8099` for the API. To change, create a `.env` file under `/frontend` with:
 
 ```
-VITE_API_BASE_URL=http://localhost:8080
+VITE_API_BASE_URL=http://localhost:8099
 ```
 
 Main features:
