@@ -4,7 +4,7 @@ exports.handler = async (event) => {
   return {
     statusCode: 200,
     body: JSON.stringify({
-      message: "Hello World from Lambda CICD!",
+      message: "Hello World from Lambda CICD! Version 2!",
     }),
   };
 };
