@@ -12,6 +12,7 @@ import (
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/embedding"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/handler"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/llm"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/service"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/worker"
@@ -45,8 +46,14 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) (*S
 		Model:      cfg.OpenAI.EmbeddingModel,
 		Dimensions: cfg.OpenAI.EmbeddingDimensions,
 	})
-	searchHandler := handler.NewSearchHandler(
-		service.NewSearchService(embedder, vectorRepo),
+	searchService := service.NewSearchService(embedder, vectorRepo)
+	searchHandler := handler.NewSearchHandler(searchService)
+	llmClient := llm.NewOpenAIClient(llm.OpenAIConfig{
+		APIKey: cfg.OpenAI.APIKey,
+		Model:  cfg.OpenAI.ChatModel,
+	})
+	chatHandler := handler.NewChatHandler(
+		service.NewRAGChatService(searchService, llmClient),
 	)
 
 	api := router.Group("/api/v1")
@@ -60,6 +67,7 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) (*S
 	api.POST("/documents", documentHandler.Upload)
 	api.GET("/documents/:id", documentHandler.GetStatus)
 	api.POST("/search", searchHandler.Search)
+	api.POST("/chat", chatHandler.Chat)
 
 	return &Server{
 		httpServer: &http.Server{

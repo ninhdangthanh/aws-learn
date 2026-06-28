@@ -138,12 +138,12 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 8.1 | LLM service | OpenAI Chat Completions client | [ ] |
-| 8.2 | Prompt template | Context-only answer instruction + citation format | [ ] |
-| 8.3 | RAG orchestration | Embed query -> retrieve chunks -> build prompt -> call LLM | [ ] |
-| 8.4 | Chat endpoint | `POST /api/v1/chat` non-streaming | [ ] |
-| 8.5 | Citation response | Return document/page/snippet from retrieved chunks | [ ] |
-| 8.6 | Usage tracking | Token usage and latency in response | [ ] |
+| 8.1 | LLM service | OpenAI Chat Completions client | [x] |
+| 8.2 | Prompt template | Context-only answer instruction + citation format | [x] |
+| 8.3 | RAG orchestration | Embed query -> retrieve chunks -> build prompt -> call LLM | [x] |
+| 8.4 | Chat endpoint | `POST /api/v1/chat` non-streaming | [x] |
+| 8.5 | Citation response | Return document/page/snippet from retrieved chunks | [x] |
+| 8.6 | Usage tracking | Token usage and latency in response | [x] |
 
 Acceptance criteria:
 
