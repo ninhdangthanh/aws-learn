@@ -157,11 +157,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 9.1 | Session creation | Create session when `session_id` is missing | [ ] |
-| 9.2 | Save messages | Persist user and assistant messages | [ ] |
-| 9.3 | Prompt history | Include recent messages in prompt | [ ] |
-| 9.4 | Session list endpoint | `GET /api/v1/chat/sessions` | [ ] |
-| 9.5 | Message list endpoint | `GET /api/v1/chat/sessions/:id/messages` | [ ] |
+| 9.1 | Session creation | Create session when `session_id` is missing | [x] |
+| 9.2 | Save messages | Persist user and assistant messages | [x] |
+| 9.3 | Prompt history | Include recent messages in prompt | [x] |
+| 9.4 | Session list endpoint | `GET /api/v1/chat/sessions` | [x] |
+| 9.5 | Message list endpoint | `GET /api/v1/chat/sessions/:id/messages` | [x] |
 
 Acceptance criteria:
 

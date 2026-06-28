@@ -24,8 +24,7 @@ type chatRequest struct {
 	// Example: "Công nghệ có thay thế giáo viên không?"
 	Question string `json:"question"`
 
-	// SessionID is optional in Phase 8 and is only echoed back if provided.
-	// Creating and storing chat sessions is handled in Phase 9.
+	// SessionID is optional. If omitted, the service creates a new chat session.
 	SessionID *string `json:"session_id"`
 
 	// TopK is the maximum number of retrieved chunks used as context.

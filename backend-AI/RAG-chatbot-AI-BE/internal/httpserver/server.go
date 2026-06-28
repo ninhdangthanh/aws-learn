@@ -48,13 +48,15 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) (*S
 	})
 	searchService := service.NewSearchService(embedder, vectorRepo)
 	searchHandler := handler.NewSearchHandler(searchService)
+	chatRepo := repository.NewChatRepository(db)
 	llmClient := llm.NewOpenAIClient(llm.OpenAIConfig{
 		APIKey: cfg.OpenAI.APIKey,
 		Model:  cfg.OpenAI.ChatModel,
 	})
 	chatHandler := handler.NewChatHandler(
-		service.NewRAGChatService(searchService, llmClient),
+		service.NewRAGChatService(searchService, llmClient, chatRepo),
 	)
+	chatSessionHandler := handler.NewChatSessionHandler(chatRepo)
 
 	api := router.Group("/api/v1")
 	api.GET("/health", func(c *gin.Context) {
@@ -68,6 +70,8 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) (*S
 	api.GET("/documents/:id", documentHandler.GetStatus)
 	api.POST("/search", searchHandler.Search)
 	api.POST("/chat", chatHandler.Chat)
+	api.GET("/chat/sessions", chatSessionHandler.ListSessions)
+	api.GET("/chat/sessions/:id/messages", chatSessionHandler.ListMessages)
 
 	return &Server{
 		httpServer: &http.Server{
