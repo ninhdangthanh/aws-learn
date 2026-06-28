@@ -192,12 +192,12 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 11.1 | Health endpoint | Check PostgreSQL, Redis, Qdrant | [ ] |
-| 11.2 | List documents | `GET /api/v1/documents` with pagination/status filter | [ ] |
-| 11.3 | Delete document | Remove document, chunks, and Qdrant vectors | [ ] |
-| 11.4 | Error handling | Consistent error response shape | [ ] |
-| 11.5 | Logging | Request ID, latency, service errors | [ ] |
-| 11.6 | README update | Setup, run, upload, search, chat, stream commands | [ ] |
+| 11.1 | Health endpoint | Check PostgreSQL, Redis, Qdrant | [x] |
+| 11.2 | List documents | `GET /api/v1/documents` with pagination/status filter | [x] |
+| 11.3 | Delete document | Remove document, chunks, and Qdrant vectors | [x] |
+| 11.4 | Error handling | Consistent error response shape | [x] |
+| 11.5 | Logging | Request ID, latency, service errors | [x] |
+| 11.6 | README update | Setup, run, upload, search, chat, stream commands | [x] |
 | 11.7 | End-to-end test | Manual flow from upload to cited answer | [ ] |
 
 Acceptance criteria:

@@ -193,6 +193,18 @@ curl http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
 
 Wait for status to become `ready` (pending → parsing → chunked → embedding → ready).
 
+### List Documents
+
+```bash
+curl "http://localhost:8099/api/v1/documents?page=1&limit=20&status=ready"
+```
+
+### Delete a Document
+
+```bash
+curl -X DELETE http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
+```
+
 ### Search Documents
 
 ```bash
@@ -243,6 +255,14 @@ curl -N -X POST http://localhost:8099/api/v1/chat \
     "question": "What is the refund policy?",
     "stream": true
   }'
+```
+
+### Chat Sessions
+
+```bash
+curl "http://localhost:8099/api/v1/chat/sessions?page=1&limit=20"
+
+curl "http://localhost:8099/api/v1/chat/sessions/550e8400-e29b-41d4-a716-446655440000/messages?limit=20"
 ```
 
 ### Health Check
