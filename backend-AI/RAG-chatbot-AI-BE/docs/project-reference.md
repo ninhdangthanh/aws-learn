@@ -442,11 +442,11 @@ For this demo project, GORM keeps repository code compact and easy to evolve. Sc
 ### Chunking defaults
 
 ```text
-chunk_size = 500 tokens
-overlap = 100 tokens
+chunk_size = 200 tokens
+overlap = 40 tokens
 ```
 
-This is large enough to retain context and small enough for precise retrieval. Each chunk should carry `document_id`, `page_number`, and `chunk_index` for citations.
+This keeps chunks focused for precise retrieval while preserving about 20% continuity across chunk boundaries. Each chunk should carry `document_id`, `page_number`, and `chunk_index` for citations.
 
 ### Prompting approach
 

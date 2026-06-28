@@ -221,8 +221,8 @@ Extract:
 Strategy:
 
 ```text
-chunk_size = 500 tokens
-overlap = 100
+chunk_size = 200 tokens
+overlap = 40
 ```
 
 Metadata:

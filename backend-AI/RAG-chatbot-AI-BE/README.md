@@ -80,7 +80,7 @@ AI:   "According to the refund policy document, delivery order refunds
 **Document Upload Flow:**
 
 1. Client uploads a PDF → API saves metadata to PostgreSQL
-2. Parse Worker extracts text and splits into chunks (500 tokens, 100 overlap)
+2. Parse Worker extracts text and splits into chunks (200 tokens, 40 overlap)
 3. Embed Worker converts chunks to vectors via OpenAI Embedding API
 4. Vectors are stored in Qdrant with document metadata
 
@@ -302,11 +302,11 @@ To make retries safe, the parse worker is idempotent:
 - it skips documents that are already `chunked`
 - it deletes existing chunks for the document before re-inserting on retry
 
-### Why 500-token chunks with 100-token overlap?
+### Why 200-token chunks with 40-token overlap?
 
-- **500 tokens**: Large enough to contain meaningful context, small enough for precise retrieval
-- **100-token overlap**: Prevents cutting sentences at chunk boundaries, ensures continuity across chunks
-- This is a common starting point — the optimal size depends on your document types
+- **200 tokens**: Focused enough for precise semantic retrieval while still carrying local context
+- **40-token overlap**: Keeps about 20% continuity across chunk boundaries without creating too much duplicate text
+- This is a practical MVP starting point; tune upward for long policy sections or downward for FAQ-style documents
 
 ### Why GORM for this demo?
 
@@ -347,8 +347,8 @@ GORM is a better fit for this repo's current pace:
 | `QDRANT_URL` | Qdrant HTTP URL | `http://localhost:6333` |
 | `QDRANT_HOST` | Qdrant gRPC host | `localhost` |
 | `QDRANT_GRPC_PORT` | Qdrant gRPC port | `6334` |
-| `CHUNK_SIZE` | Tokens per chunk | `500` |
-| `CHUNK_OVERLAP` | Token overlap between chunks | `100` |
+| `CHUNK_SIZE` | Tokens per chunk | `200` |
+| `CHUNK_OVERLAP` | Token overlap between chunks | `40` |
 | `SEARCH_TOP_K` | Default number of results | `5` |
 
 ---

@@ -162,8 +162,8 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("UPLOAD_DIR", "storage/uploads")
 	v.SetDefault("UPLOAD_MAX_FILE_SIZE_BYTES", 10485760)
-	v.SetDefault("CHUNK_SIZE", 500)
-	v.SetDefault("CHUNK_OVERLAP", 100)
+	v.SetDefault("CHUNK_SIZE", 200)
+	v.SetDefault("CHUNK_OVERLAP", 40)
 	v.SetDefault("ASYNQ_QUEUE_NAME", "default")
 	v.SetDefault("ASYNQ_CONCURRENCY", 10)
 

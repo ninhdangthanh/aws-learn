@@ -22,6 +22,7 @@ type VectorPoint struct {
 	DocumentID uuid.UUID
 	ChunkID    uuid.UUID
 	Score      float64
+	Filename   string
 	PageNumber *int32
 	ChunkIndex int32
 	Text       string
@@ -166,6 +167,7 @@ func (r *VectorRepository) Search(ctx context.Context, vector []float32, limit i
 			DocumentID: documentID,
 			ChunkID:    chunkID,
 			Score:      float64(point.GetScore()),
+			Filename:   stringPayload(payload, "filename"),
 			PageNumber: int32PointerPayload(payload, "page_number"),
 			ChunkIndex: int32Payload(payload, "chunk_index"),
 			Text:       stringPayload(payload, "text"),

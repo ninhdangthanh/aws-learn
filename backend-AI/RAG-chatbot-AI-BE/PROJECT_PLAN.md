@@ -120,11 +120,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 7.1 | Query embedding | Embed the search query | [ ] |
-| 7.2 | Qdrant search | Similarity search with `top_k` and threshold | [ ] |
-| 7.3 | Search service | Map Qdrant results to API response | [ ] |
-| 7.4 | Search endpoint | `POST /api/v1/search` | [ ] |
-| 7.5 | Manual relevance test | Test with known document questions | [ ] |
+| 7.1 | Query embedding | Embed the search query | [x] |
+| 7.2 | Qdrant search | Similarity search with `top_k` and threshold | [x] |
+| 7.3 | Search service | Map Qdrant results to API response | [x] |
+| 7.4 | Search endpoint | `POST /api/v1/search` | [x] |
+| 7.5 | Manual relevance test | Test with known document questions | [x] |
 
 Acceptance criteria:
 

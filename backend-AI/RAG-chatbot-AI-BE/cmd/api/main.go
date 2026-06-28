@@ -28,7 +28,10 @@ func main() {
 	distributor := worker.NewRedisTaskDistributor(cfg)
 	defer distributor.Close()
 
-	server := httpserver.New(cfg, db, distributor)
+	server, err := httpserver.New(cfg, db, distributor)
+	if err != nil {
+		log.Fatalf("create http server: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

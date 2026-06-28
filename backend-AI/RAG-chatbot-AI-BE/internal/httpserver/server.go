@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -9,8 +10,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/config"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/embedding"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/handler"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/repository"
+	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/service"
 	"github.com/ninhdangthanh/rag-chatbot-ai-be/internal/worker"
 )
 
@@ -18,16 +21,32 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) *Server {
+func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) (*Server, error) {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.MaxMultipartMemory = cfg.Upload.MaxFileSizeBytes
+
+	vectorRepo, err := repository.NewVectorRepository(cfg.Qdrant, cfg.OpenAI.EmbeddingDimensions)
+	if err != nil {
+		return nil, fmt.Errorf("create vector repository: %w", err)
+	}
+	if err := vectorRepo.EnsureCollection(context.Background()); err != nil {
+		return nil, fmt.Errorf("ensure qdrant collection: %w", err)
+	}
 
 	documentHandler := handler.NewDocumentHandler(
 		repository.NewDocumentRepository(db),
 		distributor,
 		cfg.Upload.Dir,
 		cfg.Upload.MaxFileSizeBytes,
+	)
+	embedder := embedding.NewOpenAIClient(embedding.OpenAIConfig{
+		APIKey:     cfg.OpenAI.APIKey,
+		Model:      cfg.OpenAI.EmbeddingModel,
+		Dimensions: cfg.OpenAI.EmbeddingDimensions,
+	})
+	searchHandler := handler.NewSearchHandler(
+		service.NewSearchService(embedder, vectorRepo),
 	)
 
 	api := router.Group("/api/v1")
@@ -40,6 +59,7 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) *Se
 	})
 	api.POST("/documents", documentHandler.Upload)
 	api.GET("/documents/:id", documentHandler.GetStatus)
+	api.POST("/search", searchHandler.Search)
 
 	return &Server{
 		httpServer: &http.Server{
@@ -48,7 +68,7 @@ func New(cfg config.Config, db *gorm.DB, distributor worker.TaskDistributor) *Se
 			ReadTimeout:  cfg.App.ReadTimeout,
 			WriteTimeout: cfg.App.WriteTimeout,
 		},
-	}
+	}, nil
 }
 
 func (s *Server) Start() error {
