@@ -198,7 +198,7 @@ Acceptance criteria:
 | 11.4 | Error handling | Consistent error response shape | [x] |
 | 11.5 | Logging | Request ID, latency, service errors | [x] |
 | 11.6 | README update | Setup, run, upload, search, chat, stream commands | [x] |
-| 11.7 | End-to-end test | Manual flow from upload to cited answer | [ ] |
+| 11.7 | End-to-end test | Manual flow from upload to cited answer | [x] |
 
 Acceptance criteria:
 
@@ -213,11 +213,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 12.1 | React scaffold | Minimal Vite React app with a few pages | [ ] |
-| 12.2 | Upload page | File input + upload button, show status from API | [ ] |
-| 12.3 | Status list | Simple list of documents and status badges | [ ] |
-| 12.4 | Chat/search page | Ask question and show answer with citations | [ ] |
-| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [ ] |
+| 12.1 | React scaffold | Minimal Vite React app with a few pages | [x] |
+| 12.2 | Upload page | File input + upload button, show status from API | [x] |
+| 12.3 | Status list | Simple list of documents and status badges | [x] |
+| 12.4 | Chat/search page | Ask question and show answer with citations | [x] |
+| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [x] |
 | 12.6 | Deploy static build | Deploy as static files on EC2/S3/CloudFront | [ ] |
 
 Acceptance criteria:

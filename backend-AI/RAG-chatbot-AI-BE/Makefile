@@ -1,4 +1,4 @@
-.PHONY: run-api run-worker build test tidy migrate-up migrate-down docker-up docker-down
+.PHONY: run-api run-worker run-frontend build build-frontend test tidy migrate-up migrate-down docker-up docker-down
 
 ifneq (,$(wildcard ./.env))
 include .env
@@ -18,6 +18,12 @@ run-worker:
 build:
 	$(GO) build ./cmd/api
 	$(GO) build ./cmd/worker
+
+run-frontend:
+	cd frontend && npm run dev
+
+build-frontend:
+	cd frontend && npm run build
 
 test:
 	$(GO) test ./...
