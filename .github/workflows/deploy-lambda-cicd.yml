@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'lambda-cicd/**'
+      - 'aws-learning/lambda-cicd/**'
+      - '.github/workflows/deploy-lambda-cicd.yml'
 
 jobs:
   deploy:
@@ -23,8 +24,8 @@ jobs:
       # 3. Zip code (for lambda-cicd)
       - name: Zip Lambda
         run: |
-          cd lambda-cicd
-          zip -r ../function.zip . -x "*.git*" "node_modules/*"
+          cd aws-learning/lambda-cicd
+          zip -r ../../function.zip . -x "*.git*" "node_modules/*"
           echo "Zip success!"
           echo "Hash: ${{ env.COMMIT_SHA }}"
 
