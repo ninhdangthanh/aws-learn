@@ -42,7 +42,7 @@ make up
 - [AWS deployment guide](docs/AWS_DEPLOYMENT_GUIDE.md)
 - [Route 53, ACM, and ALB notes](docs/route53_acm_alb_notes.md)
 - [WebRTC architecture notes](docs/WEBRTC_ARCHITECTURE_NOTES.md)
-- [TURN coturn AWS setup](docs/TURN_COTURN_AWS_SETUP.md)
+- TODO: [TURN coturn AWS setup](docs/TURN_COTURN_AWS_SETUP.md)
 - [AWS ECS architecture questions](docs/aws_ecs_architecture_questions.md)
 - [Original implementation plan](docs/plan.md)
 
