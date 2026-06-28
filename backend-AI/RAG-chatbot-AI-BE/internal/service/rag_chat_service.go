@@ -25,9 +25,14 @@ type AnswerGenerator interface {
 	Generate(ctx context.Context, input llm.GenerateInput) (llm.GenerateOutput, error)
 }
 
+type StreamingAnswerGenerator interface {
+	AnswerGenerator
+	StreamGenerate(ctx context.Context, input llm.GenerateInput, onToken llm.TokenHandler) (llm.GenerateOutput, error)
+}
+
 type RAGChatService struct {
 	searcher  SemanticSearchService
-	generator AnswerGenerator
+	generator StreamingAnswerGenerator
 	chatStore ChatStore
 }
 
@@ -68,7 +73,18 @@ type Citation struct {
 	Score       float64   `json:"score"`
 }
 
-func NewRAGChatService(searcher SemanticSearchService, generator AnswerGenerator, chatStore ChatStore) *RAGChatService {
+type StreamEvent struct {
+	Type       string         `json:"type"`
+	Content    string         `json:"content,omitempty"`
+	Citations  []Citation     `json:"citations,omitempty"`
+	SessionID  uuid.UUID      `json:"session_id,omitempty"`
+	TokenUsage llm.TokenUsage `json:"token_usage,omitempty"`
+	LatencyMS  int64          `json:"latency_ms,omitempty"`
+}
+
+type StreamEventHandler func(event StreamEvent) error
+
+func NewRAGChatService(searcher SemanticSearchService, generator StreamingAnswerGenerator, chatStore ChatStore) *RAGChatService {
 	return &RAGChatService{
 		searcher:  searcher,
 		generator: generator,
@@ -159,6 +175,113 @@ func (s *RAGChatService) Chat(ctx context.Context, input ChatInput) (ChatOutput,
 	)
 
 	return output, nil
+}
+
+func (s *RAGChatService) StreamChat(ctx context.Context, input ChatInput, onEvent StreamEventHandler) error {
+	startedAt := time.Now()
+
+	question := strings.TrimSpace(input.Question)
+	if question == "" {
+		return fmt.Errorf("question is required")
+	}
+	if onEvent == nil {
+		return fmt.Errorf("stream event handler is required")
+	}
+
+	session, err := s.resolveSession(ctx, question, input.SessionID)
+	if err != nil {
+		return err
+	}
+
+	history, err := s.chatStore.ListRecentMessagesBySession(ctx, session.ID, recentChatHistoryLimit)
+	if err != nil {
+		return fmt.Errorf("load recent chat history: %w", err)
+	}
+
+	topK := normalizeChatTopK(input.TopK)
+	searchOutput, err := s.searcher.Search(ctx, SearchInput{
+		Query:          question,
+		TopK:           topK,
+		ScoreThreshold: input.ScoreThreshold,
+	})
+	if err != nil {
+		return fmt.Errorf("retrieve context: %w", err)
+	}
+
+	citations := buildCitations(searchOutput.Results)
+	if len(searchOutput.Results) == 0 {
+		output := ChatOutput{
+			Answer:     "I cannot answer from the uploaded documents because no relevant context was found.",
+			Citations:  citations,
+			SessionID:  session.ID,
+			TokenUsage: llm.TokenUsage{},
+			LatencyMS:  time.Since(startedAt).Milliseconds(),
+		}
+		if err := onEvent(StreamEvent{Type: "token", Content: output.Answer, SessionID: session.ID}); err != nil {
+			return err
+		}
+		if err := onEvent(StreamEvent{Type: "citations", Citations: output.Citations, SessionID: session.ID}); err != nil {
+			return err
+		}
+		if err := onEvent(StreamEvent{Type: "done", SessionID: session.ID, TokenUsage: output.TokenUsage, LatencyMS: output.LatencyMS}); err != nil {
+			return err
+		}
+		return s.saveExchange(ctx, session.ID, question, output)
+	}
+
+	messages := []llm.Message{
+		{
+			Role:    "system",
+			Content: systemPrompt(),
+		},
+		{
+			Role:    "user",
+			Content: buildUserPrompt(question, history, searchOutput.Results),
+		},
+	}
+
+	generated, err := s.generator.StreamGenerate(ctx, llm.GenerateInput{Messages: messages}, func(token string) error {
+		return onEvent(StreamEvent{
+			Type:      "token",
+			Content:   token,
+			SessionID: session.ID,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("generate grounded streaming answer: %w", err)
+	}
+
+	output := ChatOutput{
+		Answer:     generated.Content,
+		Citations:  citations,
+		SessionID:  session.ID,
+		TokenUsage: generated.Usage,
+		LatencyMS:  time.Since(startedAt).Milliseconds(),
+	}
+
+	if err := onEvent(StreamEvent{Type: "citations", Citations: output.Citations, SessionID: session.ID}); err != nil {
+		return err
+	}
+	if err := onEvent(StreamEvent{Type: "done", SessionID: session.ID, TokenUsage: output.TokenUsage, LatencyMS: output.LatencyMS}); err != nil {
+		return err
+	}
+	if err := s.saveExchange(ctx, session.ID, question, output); err != nil {
+		return err
+	}
+
+	log.Printf(
+		"rag chat streamed: session_id=%s question_len=%d top_k=%d history=%d retrieved=%d prompt_tokens=%d completion_tokens=%d latency_ms=%d",
+		session.ID,
+		len(question),
+		topK,
+		len(history),
+		len(searchOutput.Results),
+		output.TokenUsage.PromptTokens,
+		output.TokenUsage.CompletionTokens,
+		output.LatencyMS,
+	)
+
+	return nil
 }
 
 func (s *RAGChatService) resolveSession(ctx context.Context, question string, sessionID *uuid.UUID) (model.ChatSession, error) {

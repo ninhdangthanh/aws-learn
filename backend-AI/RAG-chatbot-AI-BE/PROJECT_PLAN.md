@@ -175,10 +175,10 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 10.1 | Streaming LLM client | Consume streaming response from LLM provider | [ ] |
-| 10.2 | SSE handler | Stream token events from `POST /api/v1/chat` | [ ] |
-| 10.3 | Final events | Emit citations, token usage, latency, done event | [ ] |
-| 10.4 | Curl test | Verify with `curl -N` | [ ] |
+| 10.1 | Streaming LLM client | Consume streaming response from LLM provider | [x] |
+| 10.2 | SSE handler | Stream token events from `POST /api/v1/chat` | [x] |
+| 10.3 | Final events | Emit citations, token usage, latency, done event | [x] |
+| 10.4 | Curl test | Verify with `curl -N` | [x] |
 
 Acceptance criteria:
 

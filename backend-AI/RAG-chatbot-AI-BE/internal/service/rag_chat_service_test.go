@@ -36,6 +36,16 @@ func (f *fakeAnswerGenerator) Generate(ctx context.Context, input llm.GenerateIn
 	return f.output, f.err
 }
 
+func (f *fakeAnswerGenerator) StreamGenerate(ctx context.Context, input llm.GenerateInput, onToken llm.TokenHandler) (llm.GenerateOutput, error) {
+	f.input = input
+	for _, token := range []string{"Grounded ", "answer"} {
+		if err := onToken(token); err != nil {
+			return llm.GenerateOutput{}, err
+		}
+	}
+	return f.output, f.err
+}
+
 type fakeChatStore struct {
 	session         model.ChatSession
 	history         []model.ChatMessage
@@ -198,5 +208,57 @@ func TestRAGChatServiceReturnsInsufficientAnswerWhenNoContext(t *testing.T) {
 	}
 	if len(store.createdMessages) != 2 {
 		t.Fatalf("expected insufficient exchange to be saved, got %d messages", len(store.createdMessages))
+	}
+}
+
+func TestRAGChatServiceStreamChat(t *testing.T) {
+	page := int32(2)
+	sessionID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	searcher := &fakeChatSearcher{
+		output: SearchOutput{
+			Query: "Công nghệ có thay thế giáo viên không?",
+			Results: []SearchMatch{
+				{
+					ChunkID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+					DocumentID: uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+					Filename:   "giao-duc-10-topic.pdf",
+					PageNumber: &page,
+					ChunkIndex: 2,
+					Text:       "Công nghệ hỗ trợ giáo viên.",
+					Score:      0.42,
+				},
+			},
+		},
+	}
+	store := &fakeChatStore{session: model.ChatSession{ID: sessionID}}
+	generator := &fakeAnswerGenerator{
+		output: llm.GenerateOutput{
+			Content: "Grounded answer",
+			Usage:   llm.TokenUsage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12},
+		},
+	}
+
+	var events []StreamEvent
+	err := NewRAGChatService(searcher, generator, store).StreamChat(context.Background(), ChatInput{
+		Question: "Công nghệ có thay thế giáo viên không?",
+	}, func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+
+	if len(events) < 4 {
+		t.Fatalf("expected token, citations, done events, got %+v", events)
+	}
+	if events[0].Type != "token" || events[1].Type != "token" {
+		t.Fatalf("expected token events first, got %+v", events[:2])
+	}
+	if events[len(events)-2].Type != "citations" || events[len(events)-1].Type != "done" {
+		t.Fatalf("expected final citations/done events, got %+v", events)
+	}
+	if len(store.createdMessages) != 2 {
+		t.Fatalf("expected stream exchange to be saved, got %d messages", len(store.createdMessages))
 	}
 }

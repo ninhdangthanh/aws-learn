@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -13,6 +15,7 @@ import (
 
 type RAGChatter interface {
 	Chat(ctx context.Context, input service.ChatInput) (service.ChatOutput, error)
+	StreamChat(ctx context.Context, input service.ChatInput, onEvent service.StreamEventHandler) error
 }
 
 type ChatHandler struct {
@@ -35,7 +38,7 @@ type chatRequest struct {
 	// Example: 0.3 keeps chunks with score >= 0.3. If omitted, no threshold is applied.
 	ScoreThreshold *float64 `json:"score_threshold"`
 
-	// Stream must be false for Phase 8. SSE streaming is planned for Phase 10.
+	// Stream switches the endpoint to Server-Sent Events token streaming.
 	Stream bool `json:"stream"`
 }
 
@@ -55,11 +58,6 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	request.Question = strings.TrimSpace(request.Question)
 	if request.Question == "" {
 		writeError(c, http.StatusBadRequest, "invalid_request", "question is required")
-		return
-	}
-
-	if request.Stream {
-		writeError(c, http.StatusBadRequest, "streaming_not_supported", "streaming chat is planned for phase 10; set stream to false")
 		return
 	}
 
@@ -83,16 +81,49 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		sessionID = &parsed
 	}
 
-	response, err := h.chatter.Chat(c.Request.Context(), service.ChatInput{
+	input := service.ChatInput{
 		Question:       request.Question,
 		SessionID:      sessionID,
 		TopK:           request.TopK,
 		ScoreThreshold: request.ScoreThreshold,
-	})
+	}
+
+	if request.Stream {
+		h.streamChat(c, input)
+		return
+	}
+
+	response, err := h.chatter.Chat(c.Request.Context(), input)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "chat_error", "failed to answer question")
 		return
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *ChatHandler) streamChat(c *gin.Context, input service.ChatInput) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	writeEvent := func(event service.StreamEvent) error {
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+			return err
+		}
+		c.Writer.Flush()
+		return nil
+	}
+
+	if err := h.chatter.StreamChat(c.Request.Context(), input, writeEvent); err != nil {
+		_ = writeEvent(service.StreamEvent{
+			Type:    "error",
+			Content: "failed to stream answer",
+		})
+	}
 }
