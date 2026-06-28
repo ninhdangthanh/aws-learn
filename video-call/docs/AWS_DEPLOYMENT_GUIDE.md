@@ -768,6 +768,8 @@ Nếu WebSocket fail:
 
 **Step này để làm gì:** WebSocket chỉ dùng để signaling. Video/audio thật sự đi qua WebRTC, và nhiều network cần TURN để call ổn định.
 
+Chi tiết tự chạy TURN bằng coturn trên EC2 nằm ở: [TURN Coturn AWS Setup](TURN_COTURN_AWS_SETUP.md).
+
 STUN:
 
 - Giúp browser tìm public IP/port.
@@ -793,7 +795,7 @@ Nếu dùng managed TURN provider, cập nhật SSM:
 aws ssm put-parameter \
   --name /videocall/TURN_URLS \
   --type SecureString \
-  --value "turn:your-turn-host:3478,turns:your-turn-host:5349" \
+  --value "turn:your-turn-host:3478?transport=udp,turn:your-turn-host:3478?transport=tcp,turns:your-turn-host:5349?transport=tcp" \
   --overwrite \
   --region ap-southeast-1
 
@@ -813,6 +815,20 @@ aws ssm put-parameter \
 ```
 
 Sau đó redeploy ECS service để frontend container regenerate `/env-config.js`.
+
+Frontend cũng hỗ trợ:
+
+```text
+ICE_TRANSPORT_POLICY=all
+```
+
+Giữ `all` trong production bình thường. Khi debug TURN, đổi thành:
+
+```text
+ICE_TRANSPORT_POLICY=relay
+```
+
+Nếu `relay` chạy được thì media chắc chắn đang đi qua TURN. Sau khi xác nhận xong, có thể đổi lại `all`.
 
 Nếu tự chạy `coturn` trên EC2:
 

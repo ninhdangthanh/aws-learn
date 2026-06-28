@@ -18,6 +18,9 @@ const stunUrls = splitUrls(runtimeConfig.STUN_URLS || import.meta.env.VITE_STUN_
 const turnUrls = splitUrls(runtimeConfig.TURN_URLS || import.meta.env.VITE_TURN_URLS)
 const turnUsername = runtimeConfig.TURN_USERNAME || import.meta.env.VITE_TURN_USERNAME
 const turnCredential = runtimeConfig.TURN_CREDENTIAL || import.meta.env.VITE_TURN_CREDENTIAL
+const configuredIceTransportPolicy = runtimeConfig.ICE_TRANSPORT_POLICY || import.meta.env.VITE_ICE_TRANSPORT_POLICY
+const iceTransportPolicy: RTCIceTransportPolicy =
+  configuredIceTransportPolicy === 'relay' ? 'relay' : 'all'
 
 export const ICE_SERVERS: RTCIceServer[] = [
   ...(stunUrls.length > 0
@@ -40,5 +43,12 @@ export const ICE_SERVERS: RTCIceServer[] = [
 
 export const WEBRTC_CONFIG: RTCConfiguration = {
   iceServers: ICE_SERVERS,
-  iceTransportPolicy: 'all',
+  iceTransportPolicy,
 }
+
+console.info('WebRTC ICE config', {
+  iceTransportPolicy,
+  stunServers: stunUrls.length || 3,
+  turnServers: turnUrls.length,
+  hasTurnCredentials: Boolean(turnUsername && turnCredential),
+})
