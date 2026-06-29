@@ -1,75 +1,75 @@
-# Flow and Concept
+# Luồng xử lý và khái niệm
 
-This note summarizes the main RAG flows and the role of each component in this project.
+Ghi chú này tóm tắt các luồng RAG chính và vai trò của từng thành phần trong project.
 
-## Core Components
+## Thành phần chính
 
-- **API server**: receives upload, search, and chat requests.
-- **PostgreSQL**: stores document metadata, chunks, chat sessions, and chat messages.
-- **Redis / Asynq**: queues background jobs for parsing and embedding documents.
-- **Worker**: processes parse and embed jobs asynchronously.
-- **OpenAI Embeddings**: converts document chunks and user queries into vectors.
-- **Qdrant**: stores vectors and performs semantic similarity search.
-- **OpenAI Chat Model**: generates the final grounded answer from retrieved text context.
+- **API server**: nhận request upload, search và chat.
+- **PostgreSQL**: lưu metadata tài liệu, chunks, chat sessions và chat messages.
+- **Redis / Asynq**: làm hàng đợi cho các background jobs như parse và embed tài liệu.
+- **Worker**: xử lý các job parse và embed bất đồng bộ.
+- **OpenAI Embeddings**: chuyển document chunks và câu hỏi người dùng thành vectors.
+- **Qdrant**: lưu vectors và thực hiện semantic similarity search.
+- **OpenAI Chat Model**: sinh câu trả lời cuối cùng dựa trên context đã retrieval.
 
-## Upload / Ingestion Flow
+## Luồng upload / ingestion
 
 ```text
-User uploads PDF
--> API validates and saves PDF to disk
--> API creates document metadata in PostgreSQL with status=pending
--> API enqueues parse task to Redis/Asynq
--> Worker parses PDF into pages
--> Worker chunks page text
--> Worker saves chunks into PostgreSQL
--> Worker updates document status=chunked
--> Worker enqueues embed task
--> Worker loads chunks from PostgreSQL
--> Worker calls OpenAI Embeddings for chunk text
--> Worker deletes old vectors for the document in Qdrant if any
--> Worker upserts vectors and payload into Qdrant
--> Worker updates chunk qdrant_id in PostgreSQL
--> Worker updates document status=ready
+Người dùng upload PDF
+-> API validate và lưu PDF xuống disk
+-> API tạo metadata tài liệu trong PostgreSQL với status=pending
+-> API đẩy parse task vào Redis/Asynq
+-> Worker parse PDF thành các trang
+-> Worker chia text từng trang thành chunks
+-> Worker lưu chunks vào PostgreSQL
+-> Worker cập nhật document status=chunked
+-> Worker đẩy embed task
+-> Worker load chunks từ PostgreSQL
+-> Worker gọi OpenAI Embeddings cho chunk text
+-> Worker xóa vectors cũ của document trong Qdrant nếu có
+-> Worker upsert vectors và payload vào Qdrant
+-> Worker cập nhật chunk qdrant_id trong PostgreSQL
+-> Worker cập nhật document status=ready
 ```
 
-Important detail: PostgreSQL keeps the durable business data and chunk records. Qdrant keeps the searchable vector index plus payload such as `document_id`, `chunk_id`, `filename`, `page_number`, `chunk_index`, and `text`.
+Chi tiết quan trọng: PostgreSQL giữ dữ liệu nghiệp vụ bền vững và records của chunks. Qdrant giữ searchable vector index và payload như `document_id`, `chunk_id`, `filename`, `page_number`, `chunk_index`, và `text`.
 
-## Search Flow
+## Luồng search
 
 ```text
-User sends search query
--> API trims and validates query
--> Service calls OpenAI Embeddings for the query text
--> Service queries Qdrant with the query vector
--> Qdrant returns topK similar chunks with score and payload
--> API returns matched chunks to the client
+Người dùng gửi search query
+-> API trim và validate query
+-> Service gọi OpenAI Embeddings cho query text
+-> Service query Qdrant bằng query vector
+-> Qdrant trả về topK chunks tương tự nhất kèm score và payload
+-> API trả matched chunks về client
 ```
 
-The search endpoint only retrieves relevant chunks. It does not call the chat model to generate a final answer.
+Search endpoint chỉ lấy các chunks liên quan. Endpoint này không gọi chat model để sinh câu trả lời cuối cùng.
 
-## Chat Flow
+## Luồng chat
 
 ```text
-User asks a question
--> API resolves or creates chat session
--> Service loads recent chat history from PostgreSQL
--> Service calls Search flow using the question
--> Search flow embeds the question and retrieves relevant chunks from Qdrant
--> Service builds a prompt with:
+Người dùng đặt câu hỏi
+-> API tìm hoặc tạo chat session
+-> Service load recent chat history từ PostgreSQL
+-> Service gọi Search flow bằng câu hỏi
+-> Search flow embed câu hỏi và retrieval các chunks liên quan từ Qdrant
+-> Service dựng prompt gồm:
    - system instructions
-   - user question
-   - recent conversation history
-   - retrieved chunk text as context
--> Service calls OpenAI Chat Model
--> OpenAI returns grounded answer
--> Service builds citations from retrieved chunks
--> Service saves user and assistant messages into PostgreSQL
--> API returns answer, citations, session_id, token usage, and latency
+   - câu hỏi của người dùng
+   - lịch sử hội thoại gần đây
+   - retrieved chunk text làm context
+-> Service gọi OpenAI Chat Model
+-> OpenAI trả về grounded answer
+-> Service dựng citations từ retrieved chunks
+-> Service lưu user message và assistant message vào PostgreSQL
+-> API trả answer, citations, session_id, token usage và latency
 ```
 
-Key clarification: the chat model does not receive raw vectors. Vectors are only used to find relevant chunks in Qdrant. The chat model receives the retrieved chunk **text** as context.
+Điểm cần làm rõ: chat model không nhận raw vectors. Vectors chỉ được dùng để tìm chunks liên quan trong Qdrant. Chat model nhận **text** của các chunks đã retrieval làm context.
 
-## Status Lifecycle
+## Vòng đời trạng thái tài liệu
 
 ```text
 pending
@@ -79,33 +79,33 @@ pending
 -> ready
 ```
 
-If parsing, embedding, database writes, or vector upsert fails, the document is marked as:
+Nếu parse, embed, ghi database hoặc upsert vector thất bại, document được đánh dấu:
 
 ```text
 failed
 ```
 
-## Mental Model
+## Mô hình tư duy
 
-RAG has two separate phases:
+RAG có hai pha tách biệt:
 
-1. **Indexing phase**: turn documents into searchable chunks and vectors.
-2. **Retrieval + generation phase**: turn a user question into a vector, retrieve relevant chunks, then ask the LLM to answer only from those chunks.
+1. **Indexing phase**: chuyển tài liệu thành searchable chunks và vectors.
+2. **Retrieval + generation phase**: chuyển câu hỏi người dùng thành vector, retrieval các chunks liên quan, rồi yêu cầu LLM trả lời chỉ dựa trên các chunks đó.
 
-In short:
+Tóm tắt ngắn:
 
 ```text
 Documents -> chunks -> vectors -> Qdrant
 Question -> vector -> relevant chunks -> LLM answer with citations
 ```
 
-## Key Concepts
+## Khái niệm chính
 
 ### Score Threshold
 
-`score_threshold` is the minimum similarity score required for a Qdrant result to be accepted.
+`score_threshold` là điểm similarity tối thiểu để một kết quả từ Qdrant được chấp nhận.
 
-Example:
+Ví dụ:
 
 ```text
 chunk A score=0.86
@@ -113,15 +113,15 @@ chunk B score=0.72
 chunk C score=0.31
 ```
 
-If `score_threshold=0.70`, only chunk A and chunk B are returned. Chunk C is ignored because it is probably not relevant enough.
+Nếu `score_threshold=0.70`, chỉ chunk A và chunk B được trả về. Chunk C bị bỏ qua vì có khả năng không đủ liên quan.
 
-This is useful when we want to avoid giving weak or unrelated context to the chat model.
+Giá trị này hữu ích khi muốn tránh đưa context yếu hoặc không liên quan vào chat model.
 
 ### Citations
 
-`citations` are the sources used to support the final answer.
+`citations` là nguồn tham chiếu dùng để hỗ trợ câu trả lời cuối cùng.
 
-In this project, citations are built from retrieved Qdrant results. Each citation includes fields such as:
+Trong project này, citations được dựng từ kết quả retrieval của Qdrant. Mỗi citation gồm các field như:
 
 ```text
 chunk_id
@@ -133,75 +133,75 @@ text_snippet
 score
 ```
 
-The function `buildCitations(results)` converts search results into citation objects. Citations help users verify where the answer came from.
+Hàm `buildCitations(results)` chuyển search results thành citation objects. Citations giúp người dùng kiểm chứng câu trả lời đến từ đâu.
 
 ### Cited Answer
 
-A cited answer is an answer with source references.
+Cited answer là câu trả lời có kèm nguồn tham chiếu.
 
-Instead of:
-
-```text
-Students need to understand the role of technology in life and production.
-```
-
-The assistant should answer:
+Thay vì:
 
 ```text
-Students need to understand the role of technology in life and production [cong-nghe-10-topic.pdf, page 3].
+Học sinh cần hiểu vai trò của công nghệ trong đời sống và sản xuất.
 ```
 
-This is important because a RAG answer should be grounded in uploaded documents, not just generated from the model's general knowledge.
+Assistant nên trả lời:
+
+```text
+Học sinh cần hiểu vai trò của công nghệ trong đời sống và sản xuất [cong-nghe-10-topic.pdf, trang 3].
+```
+
+Điều này quan trọng vì câu trả lời RAG nên được grounded trong tài liệu đã upload, không chỉ sinh từ kiến thức chung của model.
 
 ### Embedding
 
-Embedding means converting text into a numeric vector.
+Embedding là quá trình chuyển text thành numeric vector.
 
-Example:
+Ví dụ:
 
 ```text
-"Machine learning is a field of AI"
+"Machine learning là một lĩnh vực của AI"
 -> OpenAI Embedding API
 -> [0.012, -0.034, 0.88, ...]
 ```
 
-In this project:
+Trong project này:
 
 ```text
 document chunk text -> OpenAI Embeddings -> chunk vector
 user query text -> OpenAI Embeddings -> query vector
 ```
 
-Qdrant does not create embeddings by itself. It stores vectors and searches them. OpenAI creates the vectors.
+Qdrant không tự tạo embeddings. Qdrant lưu vectors và search trên vectors đó. OpenAI là bên tạo vectors.
 
 ### Vector Search
 
-Vector search finds text by meaning, not only by exact keywords.
+Vector search tìm text theo ý nghĩa, không chỉ theo keyword chính xác.
 
-In this project, Qdrant uses cosine similarity. The idea is:
+Trong project này, Qdrant dùng cosine similarity. Ý tưởng là:
 
 ```text
-similar meaning -> vectors are close
-different meaning -> vectors are far apart
+ý nghĩa giống nhau -> vectors gần nhau
+ý nghĩa khác nhau -> vectors xa nhau
 ```
 
-When a user asks a question, the question is embedded into a vector. Qdrant compares that query vector with stored chunk vectors and returns the nearest chunks.
+Khi người dùng hỏi, câu hỏi được embed thành vector. Qdrant so sánh query vector đó với chunk vectors đã lưu và trả về các chunks gần nhất.
 
 ### Chunking
 
-Chunking means splitting a document into smaller text pieces before embedding.
+Chunking là chia tài liệu thành các đoạn text nhỏ hơn trước khi embedding.
 
-We chunk because:
+Cần chunk vì:
 
-- Full documents are too large to embed or pass to the chat model efficiently.
-- Smaller chunks make search more precise.
-- The chat model only needs the most relevant pieces, not the entire document.
+- Tài liệu đầy đủ thường quá lớn để embed hoặc đưa vào chat model hiệu quả.
+- Chunks nhỏ giúp search chính xác hơn.
+- Chat model chỉ cần các phần liên quan nhất, không cần toàn bộ tài liệu.
 
 ### Overlap
 
-Overlap means each chunk shares some text with the previous or next chunk.
+Overlap nghĩa là mỗi chunk chia sẻ một phần text với chunk trước hoặc chunk sau.
 
-Example:
+Ví dụ:
 
 ```text
 chunk 1: tokens 1-200
@@ -209,63 +209,63 @@ chunk 2: tokens 161-360
 chunk 3: tokens 321-520
 ```
 
-Here the overlap is 40 tokens.
+Ở đây overlap là 40 tokens.
 
-Overlap prevents losing meaning at chunk boundaries. If an important idea starts at the end of chunk 1 and continues into chunk 2, overlap helps both chunks keep enough context.
+Overlap giúp tránh mất ngữ nghĩa ở ranh giới chunk. Nếu một ý quan trọng bắt đầu ở cuối chunk 1 và tiếp tục sang chunk 2, overlap giúp cả hai chunk giữ đủ context.
 
 ### TopK
 
-`topK` controls how many relevant chunks are returned from vector search.
+`topK` kiểm soát số lượng chunks liên quan được trả về từ vector search.
 
-Example:
+Ví dụ:
 
 ```text
 topK=5
 ```
 
-means Qdrant returns the 5 closest chunks.
+nghĩa là Qdrant trả về 5 chunks gần nhất.
 
-Higher `topK` can give the model more context, but it can also add noise and increase token cost.
+`topK` cao hơn có thể cho model nhiều context hơn, nhưng cũng có thể thêm nhiễu và tăng token cost.
 
 ### Grounding
 
-Grounding means forcing the model to answer from retrieved document context instead of general knowledge.
+Grounding nghĩa là ép model trả lời dựa trên document context đã retrieval thay vì dùng kiến thức chung.
 
-In this project, grounding happens through:
+Trong project này, grounding xảy ra qua:
 
-- semantic search retrieving relevant chunks
-- system prompt saying "Answer using only the provided context"
-- citations pointing back to retrieved chunks
+- semantic search retrieval các chunks liên quan.
+- system prompt yêu cầu "Answer using only the provided context".
+- citations trỏ ngược về retrieved chunks.
 
 ### Retrieval
 
-Retrieval is the step that finds relevant chunks from the vector database.
+Retrieval là bước tìm các chunks liên quan từ vector database.
 
 ```text
 question -> embedding -> Qdrant search -> relevant chunks
 ```
 
-Retrieval quality is one of the most important parts of RAG. If retrieval returns poor context, the final answer will likely be poor too.
+Chất lượng retrieval là một trong các phần quan trọng nhất của RAG. Nếu retrieval trả về context kém, câu trả lời cuối cùng thường cũng kém.
 
 ### Generation
 
-Generation is the step where the chat model writes the final answer.
+Generation là bước chat model viết câu trả lời cuối cùng.
 
 ```text
 question + recent history + retrieved chunks -> OpenAI Chat Model -> final answer
 ```
 
-The chat model should synthesize the retrieved text into a useful answer and include citations.
+Chat model nên tổng hợp retrieved text thành câu trả lời hữu ích và kèm citations.
 
 ### Hallucination
 
-Hallucination means the model says something unsupported or false.
+Hallucination nghĩa là model nói điều không được hỗ trợ bởi nguồn hoặc sai sự thật.
 
-RAG reduces hallucination by giving the model retrieved document context and instructing it to answer only from that context. It does not remove hallucination completely, so cited answers and source snippets are still important.
+RAG giảm hallucination bằng cách cung cấp document context đã retrieval và yêu cầu model chỉ trả lời dựa trên context đó. Tuy nhiên RAG không loại bỏ hallucination hoàn toàn, nên cited answers và source snippets vẫn rất quan trọng.
 
-## Supporting Flows
+## Các luồng hỗ trợ
 
-The main RAG flows are upload, search, and chat. These supporting flows are useful to understand when debugging or operating the project.
+Các luồng RAG chính là upload, search và chat. Những luồng hỗ trợ dưới đây hữu ích khi debug hoặc vận hành project.
 
 ### Document Status Flow
 
@@ -277,7 +277,7 @@ pending
 -> ready
 ```
 
-If something fails during parsing, embedding, database writes, or vector upsert, the document becomes:
+Nếu có lỗi trong quá trình parsing, embedding, ghi database hoặc vector upsert, document chuyển thành:
 
 ```text
 failed
@@ -286,66 +286,66 @@ failed
 ### Document List / Status / Delete Flow
 
 ```text
-list documents
--> check document status
--> delete document when needed
--> delete related vectors from Qdrant
--> remove uploaded file from disk when available
+liệt kê documents
+-> kiểm tra document status
+-> xóa document khi cần
+-> xóa vectors liên quan trong Qdrant
+-> xóa file đã upload khỏi disk nếu còn tồn tại
 ```
 
-This flow is mostly for UI management and cleanup. It is also useful when checking why an uploaded document is not searchable yet.
+Luồng này chủ yếu phục vụ quản lý UI và cleanup. Nó cũng hữu ích khi cần kiểm tra vì sao một tài liệu đã upload nhưng chưa search được.
 
 ### Chat Session Flow
 
 ```text
-create or get chat session
--> save user message
--> generate assistant answer
--> save assistant message with citations and token usage
--> list old sessions and messages
+tạo hoặc lấy chat session
+-> lưu user message
+-> sinh assistant answer
+-> lưu assistant message kèm citations và token usage
+-> liệt kê sessions và messages cũ
 ```
 
-Chat sessions allow the app to keep recent conversation history and reuse it in later prompts.
+Chat sessions cho phép app giữ lịch sử hội thoại gần đây và tái sử dụng lịch sử đó trong các prompt sau.
 
 ### Streaming Chat Flow
 
 ```text
-same retrieval and generation flow as normal chat
--> return tokens gradually through SSE
--> send citations
--> send done event
--> save the final exchange
+chạy retrieval và generation giống luồng chat thường
+-> trả tokens dần dần qua SSE
+-> gửi citations
+-> gửi done event
+-> lưu lượt hội thoại cuối cùng
 ```
 
-Streaming improves user experience because the user sees the answer as it is generated instead of waiting for the full response.
+Streaming cải thiện trải nghiệm người dùng vì người dùng thấy câu trả lời được sinh dần thay vì phải chờ toàn bộ response hoàn thành.
 
 ### Health Flow
 
 ```text
-check API health
--> check PostgreSQL connectivity
--> check Qdrant connectivity
--> return health status
+kiểm tra API health
+-> kiểm tra kết nối PostgreSQL
+-> kiểm tra kết nối Qdrant
+-> trả về health status
 ```
 
-Health checks are useful for deployment, uptime monitoring, and quick debugging after Docker containers start.
+Health checks hữu ích cho deployment, uptime monitoring và debug nhanh sau khi Docker containers khởi động.
 
-## Concepts Still Worth Learning
+## Các khái niệm vẫn nên học thêm
 
-The questions above cover the core concepts needed to understand this project. After that, the next useful concepts are:
+Các câu hỏi ở trên bao phủ nền tảng cần thiết để hiểu project này. Sau đó, các khái niệm hữu ích tiếp theo là:
 
-- **Recall vs precision**: recall means finding enough relevant chunks; precision means avoiding irrelevant chunks.
-- **Chunk size tuning**: smaller chunks improve precision, larger chunks preserve more context.
-- **Embedding model choice**: different embedding models affect search quality, vector size, latency, and cost.
-- **Reranking**: after vector search, a reranker can reorder results to improve relevance.
-- **Hybrid search**: combines vector search with keyword search for better results on exact terms, IDs, names, and rare words.
-- **Metadata filtering**: search only inside a document, user workspace, category, date range, or permission scope.
-- **Prompt construction**: decides how retrieved chunks, history, and instructions are arranged before calling the chat model.
-- **Context window and token budget**: controls how much retrieved text can fit into the final prompt.
-- **Evaluation**: test whether retrieval finds the right chunks and whether answers are faithful to sources.
-- **Observability**: log latency, topK, scores, token usage, failed jobs, and retrieval quality.
+- **Recall vs precision**: recall là tìm đủ chunks liên quan; precision là tránh chunks không liên quan.
+- **Chunk size tuning**: chunks nhỏ cải thiện precision, chunks lớn giữ được nhiều context hơn.
+- **Embedding model choice**: model embedding khác nhau ảnh hưởng search quality, vector size, latency và cost.
+- **Reranking**: sau vector search, reranker có thể sắp xếp lại kết quả để tăng relevance.
+- **Hybrid search**: kết hợp vector search với keyword search để tốt hơn với exact terms, IDs, names và rare words.
+- **Metadata filtering**: chỉ search trong một document, user workspace, category, date range hoặc permission scope.
+- **Prompt construction**: quyết định cách sắp xếp retrieved chunks, history và instructions trước khi gọi chat model.
+- **Context window and token budget**: kiểm soát lượng retrieved text có thể đưa vào final prompt.
+- **Evaluation**: kiểm tra retrieval có tìm đúng chunks không và câu trả lời có trung thành với nguồn không.
+- **Observability**: log latency, topK, scores, token usage, failed jobs và retrieval quality.
 
-For this project, the must-know foundation is:
+Với project này, nền tảng bắt buộc cần nắm là:
 
 ```text
 chunking
