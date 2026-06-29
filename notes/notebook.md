@@ -458,112 +458,18 @@ Dữ liệu nhận được ──► Thuật toán Băm (Hash) ─────�
 
 # PHẦN 5: TỐI ƯU HÓA LẬP TRÌNH & RUNTIME (LANGUAGE & PERFORMANCE)
 
-## 1. Concurrency vs. Multi-Threading trong Golang & Rust
-Đây là các khái niệm cực kỳ hay gặp trong các buổi phỏng vấn kỹ sư cấp cao về khả năng lập trình đồng thời và tối ưu hóa tài nguyên phần cứng.
+## 1. Core Golang và TypeScript đã tách riêng
 
-### Phân biệt Concurrency (Đồng thời) vs. Parallelism (Song song)
-*   **Concurrency (Đồng thời):** Là khả năng thiết lập cấu trúc chương trình để xử lý nhiều nhiệm vụ cùng một lúc (Dealing with lots of things at once - Quản lý cấu trúc luồng logic).
-*   **Parallelism (Song song):** Là khả năng thực thi vật lý nhiều tác vụ đồng thời tại cùng một thời điểm trên các nhân CPU khác nhau (Doing lots of things at once - Xử lý phần cứng thực tế).
+Các phần core ngôn ngữ/runtime dùng cho phỏng vấn đã được chuyển ra file riêng để dễ ôn theo CV:
 
----
+*   [Golang Core Interview Notes](golang-core-interview.md): interface, pointer/value receiver, goroutine, channel, context, worker pool, memory, error handling, gRPC, RabbitMQ, database/cache.
+*   [TypeScript Core Interview Notes](typescript-core-interview.md): Bun/Node.js runtime, event loop, callback/promise/async-await, concurrency limit, type system nâng cao, runtime validation, backend/React TS.
 
-### Khả năng xử lý trong Golang (Mô hình CSP & GMP Scheduler)
-Go tiếp cận lập trình đồng thời thông qua triết lý: *"Đừng giao tiếp bằng cách chia sẻ bộ nhớ, hãy chia sẻ bộ nhớ bằng cách giao tiếp"*.
-
-```
-         [MÔ HÌNH LẬP LỊCH GMP TRONG GOLANG]
-         
-       G1       G2       G3  (M các Goroutines cực nhẹ ~2KB)
-        │        │        │
-      ┌─▼────────▼────────▼─┐
-      │  P (Logical Processor)  │ (Quản lý hàng đợi thực thi)
-      └──────────┬──────────┘
-                 ▼
-      ┌─────────────────────┐
-      │   M (OS Thread)     │ (Luồng vật lý thực thi thực tế)
-      └─────────────────────┘
-```
-
-*   **Goroutine:** Siêu nhẹ (khởi đầu chỉ chiếm khoảng 2KB dung lượng RAM thay vì 1MB-2MB của OS Thread). Quá trình chuyển đổi ngữ cảnh (context switch) của Goroutine diễn ra ở không gian người dùng (User-space), nhanh hơn hàng trăm lần so với Kernel-space context switch.
-*   **Channel:** Kênh truyền dẫn an toàn giúp trao đổi dữ liệu trực tiếp giữa các Goroutines mà không cần dùng đến cơ chế khóa chia sẻ bộ nhớ (`Mutex`).
-*   **GMP Scheduler:** Go Runtime duy trì một bộ lập lịch cực kỳ thông minh:
-    *   `G` (Goroutine): Đại diện cho tác vụ đồng thời.
-    *   `M` (Machine): Đại diện cho OS Thread vật lý.
-    *   `P` (Processor): Đại diện cho bộ xử lý logic chứa hàng đợi của các Goroutine cần chạy.
-    *   *Work Stealing:* Khi một luồng vật lý chạy hết việc, bộ lập lịch sẽ tự động "đánh cắp" Goroutine từ hàng đợi của Processor khác để chạy tiếp, tối ưu hóa tối đa hiệu năng đa nhân CPU.
+Phần này chỉ giữ lại các chủ đề cross-language hoặc roadmap tổng quan.
 
 ---
 
-### Các mẫu xử lý đồng thời phổ biến
-*   **Producer-Consumer:** Một hoặc nhiều luồng/goroutine sản sinh dữ liệu (`Producers`) đưa vào một hàng đợi chung (`Queue`/`Channel`), và một hoặc nhiều luồng/goroutine khác (`Consumers`) lấy dữ liệu từ hàng đợi đó ra để xử lý độc lập.
-    *   *Trong Go:* Channel thường đóng vai trò queue an toàn giữa producer và consumer. Dùng buffered channel để hấp thụ burst ngắn, nhưng vẫn cần kiểm soát backpressure để tránh producer đẩy nhanh hơn tốc độ consumer xử lý.
-    *   *Ứng dụng:* Xử lý job upload file, gửi email, ghi log bất đồng bộ, consume message từ Kafka/RabbitMQ rồi phân phối cho worker xử lý.
-*   **Thread Pool:** Khởi tạo trước một số lượng luồng nhất định và tái sử dụng chúng để xử lý các tác vụ, thay vì liên tục tạo mới và hủy luồng làm tiêu tốn tài nguyên hệ thống.
-    *   *Trong Go:* Ta thường triển khai biến thể `Worker Pool` bằng một số lượng goroutine cố định đọc job từ channel. Dù goroutine nhẹ hơn OS thread, worker pool vẫn cần thiết để giới hạn concurrency, bảo vệ database/API ngoài và kiểm soát memory.
-    *   *Quy tắc chọn số worker:* Với tác vụ I/O-bound có thể nhiều hơn số CPU core; với CPU-bound thường bám gần `GOMAXPROCS`/số core. Luôn đo bằng benchmark/metrics thay vì đoán cứng.
-
-### Golang Worker Pool
-Worker Pool giới hạn số goroutine xử lý đồng thời để hệ thống không bị "nổ" tài nguyên khi lượng job tăng đột biến.
-
-```go
-func worker(ctx context.Context, jobs <-chan Job, results chan<- Result) {
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case job, ok := <-jobs:
-            if !ok {
-                return
-            }
-            results <- process(job)
-        }
-    }
-}
-```
-
-*   **Thành phần:** `jobs` channel để nhận việc, `results` channel để trả kết quả, `context.Context` để hủy graceful, `sync.WaitGroup` để chờ toàn bộ worker kết thúc.
-*   **Lỗi thường gặp:** Không đóng channel đúng chỗ, không drain result channel, spawn goroutine vô hạn theo từng request, hoặc thiếu timeout khi gọi dependency ngoài.
-*   **Best practices:** Đặt queue size có chủ đích, expose metric `queue_depth`, `worker_busy`, `job_latency`, và có cơ chế retry/dead-letter cho job lỗi.
-
-### Pipeline Pattern
-Pipeline chia một quy trình lớn thành nhiều stage nối với nhau bằng channel. Mỗi stage nhận input, xử lý, rồi phát output cho stage tiếp theo.
-
-```
-Input Files -> Parse Stage -> Validate Stage -> Transform Stage -> Persist Stage
-```
-
-*   **Ưu điểm:** Tách trách nhiệm rõ ràng, dễ test từng stage, tận dụng concurrency tự nhiên giữa các bước.
-*   **Backpressure:** Nếu stage sau chậm, channel sẽ đầy và tự làm chậm stage trước. Đây là điểm mạnh nhưng cũng cần timeout/cancel để tránh treo toàn bộ pipeline.
-*   **Cancellation:** Luôn truyền `context.Context` qua các stage để khi request bị hủy hoặc có lỗi nghiêm trọng, toàn bộ pipeline dừng đúng cách.
-
-### Fan-out/Fan-in
-Fan-out chia một luồng công việc thành nhiều worker xử lý song song; Fan-in gom kết quả từ nhiều worker về một channel/result aggregator.
-
-*   **Fan-out:** Một input channel được nhiều worker cùng đọc để tăng throughput.
-*   **Fan-in:** Nhiều output channel được merge lại thành một stream kết quả duy nhất.
-*   **Ứng dụng:** Crawl nhiều URL, xử lý nhiều file, gọi song song nhiều service độc lập, tính toán batch dữ liệu.
-*   **Lưu ý:** Kết quả có thể về không đúng thứ tự ban đầu. Nếu cần preserve ordering, phải gắn sequence number và sắp xếp lại ở aggregator.
-
-### Memory Management trong Golang
-Go có garbage collector tự động, nhưng hệ thống backend hiệu năng cao vẫn cần hiểu allocation pattern để giảm pause time và CPU overhead.
-
-*   **Stack vs. Heap:** Goroutine bắt đầu với stack nhỏ và tự grow/shrink. Biến có thể bị đưa lên heap nếu escape khỏi scope hiện tại (`escape analysis`).
-*   **Giảm allocation:** Tái sử dụng buffer với `sync.Pool` cho object tạm thời lớn, tránh convert `[]byte` <-> `string` không cần thiết, preallocate slice/map khi biết kích thước gần đúng.
-*   **GC Pressure:** Nhiều object nhỏ sống ngắn làm tăng áp lực GC. Với hot path, dùng benchmark (`go test -bench -benchmem`) và profile (`pprof`) để tìm allocation thật sự đắt.
-*   **Memory leak phổ biến:** Goroutine bị kẹt do không nhận được tín hiệu cancel, channel không được consume, timer/ticker không `Stop`, cache không có TTL/eviction, hoặc giữ reference tới slice lớn dù chỉ cần một phần nhỏ.
-
-### Error Handling trong Golang
-Go ưu tiên xử lý lỗi tường minh bằng `error` thay vì exception. Điều này làm code hơi dài hơn nhưng giúp luồng lỗi rõ ràng trong production.
-
-*   **Wrap lỗi có ngữ cảnh:** Dùng `fmt.Errorf("create order: %w", err)` để giữ nguyên root cause và thêm ngữ cảnh nghiệp vụ.
-*   **Phân loại lỗi:** Dùng `errors.Is` cho sentinel error, `errors.As` cho custom error type, và map lỗi nghiệp vụ sang HTTP status/gRPC code nhất quán.
-*   **Không nuốt lỗi:** Nếu retry hết số lần vẫn lỗi, cần log với correlation/request id và trả lỗi có thể hành động được cho caller.
-*   **Concurrency error:** Với nhiều goroutine, dùng `errgroup.WithContext` để gom lỗi đầu tiên và tự hủy các goroutine còn lại khi một nhánh thất bại.
-*   **Panic:** Chỉ dùng cho lỗi lập trình không thể phục hồi hoặc trạng thái bất khả thi. Ở HTTP server cần recovery middleware để tránh crash toàn bộ process, nhưng không nên dùng panic như flow control.
-
----
-
-### Khả năng xử lý trong Rust (Fearless Concurrency & System Threads)
+## 2. Khả năng xử lý trong Rust (Fearless Concurrency & System Threads)
 Rust tiếp cận lập trình đồng thời thông qua sự an toàn tuyệt đối ngay tại thời điểm biên dịch (Compile-time safety).
 
 *   **Fearless Concurrency (Đồng thời không sợ hãi):** Rust loại bỏ hoàn toàn các lỗi tranh chấp dữ liệu rủi ro (`Data Race`) tại thời điểm compile nhờ vào hệ thống quyền sở hữu (`Ownership`) và mượn dữ liệu (`Borrowing`). Trình biên dịch sẽ từ chối build nếu phát hiện nguy cơ hai luồng cùng ghi dữ liệu vào một vùng nhớ cùng một thời điểm mà không có cơ chế đồng bộ hóa an toàn.
@@ -574,24 +480,13 @@ Rust tiếp cận lập trình đồng thời thông qua sự an toàn tuyệt �
 
 ---
 
-## 2. SOLID Principles ứng dụng thực tế
+## 3. SOLID Principles ứng dụng thực tế
 Năm nguyên tắc vàng trong thiết kế hướng đối tượng giúp mã nguồn dễ bảo trì và mở rộng:
 1.  **Single Responsibility Principle (SRP):** Một lớp/module chỉ nên có một lý do duy nhất để thay đổi. *Ví dụ:* Tách biệt logic tính toán đơn hàng ra khỏi logic gửi email thông báo đơn hàng.
 2.  **Open/Closed Principle (OCP):** Mở rộng để phát triển, nhưng đóng để sửa đổi. Thiết kế các interface rõ ràng để khi thêm chức năng mới (như phương thức thanh toán mới) chỉ cần tạo class mới hiện thực interface đó mà không cần sửa code cũ.
 3.  **Liskov Substitution Principle (LSP):** Lớp con phải có khả năng thay thế hoàn toàn cho lớp cha mà không làm thay đổi tính đúng đắn của chương trình.
 4.  **Interface Segregation Principle (ISP):** Nên chia nhỏ các interface lớn thành nhiều interface nhỏ, chuyên biệt. Không ép buộc client phải hiện thực các phương thức mà họ không sử dụng.
 5.  **Dependency Inversion Principle (DIP):** Các module cấp cao không nên phụ thuộc vào các module cấp thấp, cả hai nên phụ thuộc vào sự trừu tượng (`Abstraction`/`Interface`).
-
----
-
-## 3. JavaScript Runtimes vs. Java Runtime Environment (JRE)
-*   **Bun vs. Node.js vs. NPM:**
-    *   `Node.js` là môi trường thực thi (runtime) JavaScript xây dựng trên công cụ V8 của Google, hoạt động theo cơ chế đơn luồng phi chặn dựa trên vòng lặp sự kiện (`Event Loop`).
-    *   `Bun` là môi trường thực thi thế hệ mới, viết bằng ngôn ngữ Zig và sử dụng engine JavaScriptCore (của WebKit/Safari). Bun tích hợp sẵn trình đóng gói (bundler), quản lý package, công cụ chạy test và cho hiệu năng vượt trội hơn Node.js từ 2-4 lần trong việc khởi động và xử lý I/O.
-    *   `NPM` là trình quản lý thư viện (Package Manager) dành cho hệ sinh thái JavaScript, không phải là runtime.
-*   **JavaScript Runtime vs. JRE (Java Runtime Environment):**
-    *   *JavaScript Runtime:* Biên dịch động (JIT - Just-In-Time Compilation) từ mã JavaScript nguồn thành mã máy trực tiếp ngay khi thực thi thông qua V8/JavaScriptCore. Tối ưu cực tốt cho các tác vụ I/O bound nhờ cơ chế bất đồng bộ non-blocking.
-    *   *JRE/JVM:* Biên dịch mã nguồn Java trước thành mã trung gian nhị phân (`Bytecode`). Khi chạy, Máy ảo Java (`JVM`) trong JRE sẽ thông dịch Bytecode này hoặc biên dịch JIT thành mã máy. JVM cực mạnh cho các hệ thống lớn đòi hỏi xử lý tính toán cực nặng (CPU bound), đa luồng thực tế ở tầng sâu của hệ thống, quản lý bộ nhớ vô cùng phức tạp và chặt chẽ.
 
 ---
 

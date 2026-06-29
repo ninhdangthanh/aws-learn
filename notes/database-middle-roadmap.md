@@ -462,7 +462,143 @@ MongoDB là schema-flexible, nhưng production vẫn nên có ràng buộc để
 
 ---
 
-## 17. Checklist năng lực Middle Database
+## 17. PostgreSQL production patterns dễ bị hỏi
+
+Phần này gom các tình huống production hay bị hỏi khi CV có PostgreSQL/MySQL và backend API thực tế.
+
+### Delete/archive dữ liệu lớn
+
+Không nên chạy một câu `DELETE` lớn trên bảng nhiều triệu/tỷ rows nếu chưa đánh giá lock, WAL/binlog, replication lag và I/O.
+
+Pattern:
+
+* Batch delete theo primary key/time range.
+* Partition theo `created_at` rồi drop partition khi archive.
+* Copy-swap/shadow table cho case đặc biệt.
+* Chạy ngoài giờ cao điểm, có sleep giữa batch và metric theo dõi.
+
+### Online schema migration
+
+Migration production cần backward-compatible.
+
+Quy trình expand/contract:
+
+1. Add column/table mới theo cách không phá code cũ.
+2. Deploy code ghi cả old/new nếu cần.
+3. Backfill dữ liệu theo batch.
+4. Đọc từ schema mới.
+5. Sau khi ổn định mới drop old column/path.
+
+Lưu ý:
+
+* Add `NOT NULL`/default/constraint trên bảng lớn có thể tốn lock tùy DB/version.
+* Index mới nên cân nhắc `CONCURRENTLY` trong PostgreSQL.
+* Luôn có rollback plan.
+
+### Count exact và pagination
+
+`SELECT COUNT(*)` trên bảng lớn có thể đắt nếu request nào cũng cần total.
+
+Lựa chọn:
+
+* Estimated count.
+* Cached count.
+* Chỉ trả `has_next`.
+* Async/reporting query cho màn hình admin cần tổng chính xác.
+
+Cursor pagination nên dùng cho feed, notification, order history; offset pagination chỉ hợp dữ liệu nhỏ hoặc cần nhảy trang ngẫu nhiên.
+
+### Unique constraint chống race condition
+
+Application check không đủ để đảm bảo unique.
+
+Pattern:
+
+* Dùng unique constraint/index ở DB.
+* App bắt duplicate key và trả `409 Conflict` hoặc retry tùy case.
+* Với soft delete, dùng partial unique index nếu cần unique trên dữ liệu chưa xóa.
+
+Ví dụ:
+
+```sql
+CREATE UNIQUE INDEX users_email_active_unique
+ON users(email)
+WHERE deleted_at IS NULL;
+```
+
+### Read replica và read-after-write
+
+Read replica giúp tăng read throughput nhưng có replication lag.
+
+Cách xử lý read-after-write:
+
+* Đọc primary ngay sau write cho user/session đó.
+* Sticky read trong vài giây sau write.
+* Primary fallback nếu data chưa thấy trên replica.
+* UI hiển thị pending nếu eventual consistency chấp nhận được.
+
+### N+1 query
+
+N+1 xảy ra khi load list rồi query từng item liên quan.
+
+Fix:
+
+* Join nếu dữ liệu quan hệ rõ.
+* Batch query bằng `WHERE id IN (...)`.
+* Dataloader pattern.
+* Preload/prefetch có kiểm soát.
+* Log query count trong request để phát hiện sớm.
+
+### Connection pool exhaustion
+
+Pool quá nhỏ làm request chờ connection. Pool quá lớn làm DB quá tải vì tổng connection của nhiều app instances vượt capacity DB.
+
+Cần monitor:
+
+* active/idle/wait connections.
+* wait duration.
+* query latency.
+* transaction duration.
+* max connection trên DB.
+
+Rule thực tế:
+
+```text
+total_connections = app_instances * max_open_connections
+```
+
+Con số này phải nhỏ hơn capacity DB sau khi trừ connection cho migration, admin, background jobs và monitoring.
+
+### Money, decimal và time
+
+Money:
+
+* Không dùng float cho tiền.
+* Dùng smallest currency unit hoặc decimal.
+* Có rounding policy rõ ràng.
+* Lưu tỷ giá snapshot nếu có currency conversion.
+
+Time:
+
+* Store UTC.
+* Convert at edge.
+* Lưu timezone của user/store nếu business cần lịch địa phương.
+* Test quanh month-end/DST nếu hệ thống có timezone quốc tế.
+
+### Geospatial search
+
+Search "near me" không nên tính distance toàn bộ rows.
+
+Lựa chọn:
+
+* PostGIS.
+* spatial index.
+* bounding box prefilter.
+* geohash nếu cần partition/cache theo vùng.
+
+---
+
+## 18. Checklist năng lực Middle Database
 
 Bạn có thể tự đánh dấu theo thứ tự:
 
@@ -476,8 +612,10 @@ Bạn có thể tự đánh dấu theo thứ tự:
 *   [ ] Biết partitioning giúp gì, cần partition key nào.
 *   [ ] Biết replication lag và read-after-write consistency.
 *   [ ] Biết cấu hình connection pool theo tổng số app instances.
+*   [ ] Biết xử lý online schema migration theo expand/contract.
+*   [ ] Biết phát hiện và xử lý N+1 query.
+*   [ ] Biết dùng unique constraint/partial unique index để chống race condition.
 *   [ ] Biết cache-aside và các lỗi cache stampede/penetration/avalanche.
 *   [ ] Biết migration production theo hướng backward-compatible.
 *   [ ] Biết đọc slow query log và metric DB cơ bản.
 *   [ ] Giải thích được sharding và trade-off mà không over-engineer.
-

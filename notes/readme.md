@@ -1,823 +1,98 @@
-Khi phỏng vấn hoặc chia sẻ kinh nghiệm, các kỹ sư Senior Backend thường đúc kết rằng: Sự khác biệt lớn nhất không nằm ở những thuật toán cao siêu, mà ở việc hệ thống của bạn sẽ sống sót ra sao khi mọi thứ bắt đầu fail, scale lớn, xuất hiện race condition, hay dữ liệu rác tràn vào.
+# Backend Interview Notes
 
-Dưới đây là một cuộc hội thoại thực tế của các kỹ sư về những tình huống "dở khóc dở cười" trên production — nơi ranh giới giữa Junior và Senior được phân định rõ ràng nhất.
+Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện tại: Golang, Bun/TypeScript, PostgreSQL, MongoDB, Redis, RabbitMQ, gRPC, microservices, AWS và system design.
 
----
-
-**1. Rate limit không chỉ là API gateway problem**
-
-Junior thường nghĩ:
-
-> “Nginx / API Gateway limit 100 req/min là xong.”
-
-Nhưng thực tế:
-
-* User VIP cần quota khác
-* Internal service không nên bị limit như public user
-* Login API cần aggressive limit
-* Search API cần limit theo cost
-* Một request export CSV có thể tốn gấp 100 lần request bình thường
-
-Nên rate limit thường có nhiều dimension:
-
-* theo user
-* theo IP
-* theo API key
-* theo role
-* theo endpoint cost
-* theo concurrency
-* theo tenant/company
-
-Ví dụ:
-
-```txt
-/free-user/search = 10 req/s
-/vip-user/search = 100 req/s
-/export-report = max 2 concurrent jobs
-```
-
-Senior level sẽ nghĩ tới:
-
-* token bucket vs leaky bucket
-* distributed counter bằng Redis
-* sliding window
-* burst traffic
-* fairness
-* retry storm
-* rate limit synchronization giữa nhiều instance
+`readme.md` chỉ dùng để giới thiệu, định hướng plan và trỏ đến các file topic. Kiến thức chi tiết nằm trong từng file riêng để dễ ôn, dễ bổ sung và tránh bị biến thành một file quá dài.
 
 ---
 
-**2. Delete data cũ = operation cực nguy hiểm**
+## Plan chính
 
-Câu:
-
-```sql
-DELETE FROM orders WHERE created_at < '2022-01-01';
-```
-
-ở production vài trăm triệu row có thể:
-
-* lock table
-* full scan
-* replication lag
-* fill WAL/binlog cực lớn
-* làm DB CPU 100%
-* chết read replica
-
-Nên senior thường dùng:
-
-### Batch delete
-
-```sql
-DELETE ...
-LIMIT 1000;
-```
-
-loop nhiều lần.
-
-Hoặc:
-
-### Partitioning
-
-Partition theo tháng/năm:
-
-```txt
-orders_2021
-orders_2022
-orders_2023
-```
-
-Muốn xoá:
-
-```sql
-DROP PARTITION
-```
-
-=> gần như instant.
-
-Hoặc:
-
-### Shadow table strategy
-
-* create table mới
-* copy data cần giữ
-* swap table
-* rename
-
-Đây là pattern rất production-grade.
+1. [Kế hoạch ôn Middle Backend Go - 3 tuần](middle-backend-interview-plan.md)
+2. Tuần 1: đóng gói Redis clone và RAG thành project pitch/deep dive.
+3. Tuần 2: Go/API/PostgreSQL/Redis và project deep dive.
+4. Tuần 3: MongoDB, RabbitMQ, gRPC, microservice và system design.
 
 ---
 
-**3. OFFSET pagination chết ở page lớn**
+## Core language
 
-Query:
-
-```sql
-LIMIT 20 OFFSET 1000000
-```
-
-DB vẫn phải:
-
-* scan
-* sort
-* skip 1 triệu row
-
-rồi mới trả 20 row.
-
-Nên page càng lớn càng chậm.
+| File | Dùng để ôn |
+|---|---|
+| [Golang Core Interview Notes](golang-core-interview.md) | Interface, pointer/value receiver, goroutine, channel, context, memory, error handling, gRPC/RabbitMQ trong Go |
+| [TypeScript Core Interview Notes](typescript-core-interview.md) | Bun/Node.js runtime, event loop, callback/promise/async-await, runtime validation, type narrowing, React TS practical |
 
 ---
 
-Senior sẽ dùng:
+## Database, cache và storage
 
-## Cursor pagination
+| File | Dùng để ôn |
+|---|---|
+| [Database Middle Roadmap](database-middle-roadmap.md) | PostgreSQL/index/query plan/transaction/MVCC/partition/replication/connection pool/cache/migration |
+| [MongoDB F&B Notes](mongo_fnb.md) | Document model, embed/reference, hot document, aggregation, index, sharding, transaction, TTL, change stream |
+| [Production Backend Concepts](production-backend-concepts.md) | Các tình huống production dễ bị hỏi: pagination, idempotency, cache stampede, retry storm, online migration, read replica stale |
 
-Ví dụ:
+Concept nên nắm thêm trong nhóm này:
 
-```sql
-WHERE id > 12345
-LIMIT 20
-```
-
-hoặc:
-
-```sql
-WHERE created_at < last_seen_created_at
-```
-
-Complexity thấp hơn rất nhiều.
+* PostgreSQL: `EXPLAIN ANALYZE`, composite index, lock wait/deadlock, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
+* Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, distributed lock và fencing token.
+* MongoDB: schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
 
 ---
 
-Điểm hay là:
+## Service communication, queue và API
 
-**cursor pagination không chỉ nhanh hơn, mà còn đúng hơn trong realtime system.**
+| File | Dùng để ôn |
+|---|---|
+| [Backend Communication Roadmap](backend-communication-roadmap.md) | REST/gRPC boundary, RabbitMQ, retry/backoff, DLQ, idempotent consumer, outbox, API versioning, WebSocket scale |
+| [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
 
-Offset pagination bị bug:
+Concept nên nắm thêm trong nhóm này:
 
-* đang page 3
-* có row mới insert
-* data shift
-* duplicate/missing item
-
-Cursor tránh được chuyện này.
-
----
-
-**4. “SELECT COUNT(*)” tưởng rẻ nhưng đôi khi rất đắt**
-
-Frontend thích:
-
-```txt
-Page 1/53291
-```
-
-Nhưng:
-
-```sql
-SELECT COUNT(*)
-```
-
-trên bảng vài tỷ row cực nặng.
-
-Nhiều system lớn:
-
-* không trả total exact
-* dùng estimated count
-* hoặc chỉ show:
-
-  * “more results”
-  * “next page”
-
-Ví dụ:
-
-* Twitter
-* Facebook
-* Reddit
-
-không ai care page số 18293.
+* RabbitMQ: exchange, routing key, queue binding, ack/nack, prefetch, retry, DLQ, poison message, at-least-once delivery, idempotent consumer.
+* gRPC: protobuf field compatibility, unary/server-stream/client-stream/bidi-stream, deadline, status code, interceptor, REST vs gRPC trade-off.
+* API production: rate limit nhiều dimension, idempotency key, request timeout, graceful shutdown, API versioning, backward compatibility.
 
 ---
 
-**5. Idempotency nhìn đơn giản nhưng cực khó**
+## System design và scale
 
-Ví dụ payment:
+| File | Dùng để ôn |
+|---|---|
+| [Scale System Questions](scale_system_question.md) | DNS, CDN, WAF, load balancer, API gateway, stateless app, autoscaling, cache, queue, database, sharding, observability |
+| [Production Backend Concepts](production-backend-concepts.md) | Checklist failure mode theo từng topic để đưa vào system design answer |
 
-```txt
-Client timeout
-→ retry
-→ server xử lý lần 2
-→ charge tiền 2 lần
-```
+Khi luyện system design, luôn đi theo thứ tự:
 
-Senior sẽ nghĩ:
-
-* idempotency key
-* deduplication table
-* exactly-once illusion
-* distributed transaction
-* retry safety
-
-Đây là lý do Stripe rất nổi tiếng về idempotency design.
+1. Requirements và traffic estimate.
+2. API và data model.
+3. Read path, write path, async path.
+4. Bottleneck và failure mode.
+5. Trade-off và scale path.
 
 ---
 
-**6. Queue không phải cứ Kafka/RabbitMQ là xong**
+## Project pitch/deep dive
 
-Ví dụ consumer chậm:
+| Project | Nên nhấn mạnh |
+|---|---|
+| Redis clone | RESP parser, command dispatch, TTL, AOF/RDB concept, Pub/Sub, concurrency, tests, phần còn thiếu so với Redis thật |
+| RAG chatbot/backend-AI | Upload, ingestion worker, chunking, vector search, Qdrant, Postgres metadata, Redis worker/cache, citation, timeout/retry/failure mode |
 
-* backlog tăng
-* retry storm
-* poison message
-* duplicate processing
-* ordering broken
+Output nên có trước khi phỏng vấn:
 
-Senior sẽ phải nghĩ:
-
-* DLQ
-* retry strategy
-* exponential backoff
-* partition key
-* consumer lag
-* at least once vs exactly once
-* rebalancing
+* Pitch 60-90 giây cho mỗi project.
+* 8-10 câu Q&A deep dive cho mỗi project.
+* 2 câu chuyện STAR từ kinh nghiệm làm việc thật.
+* 2 bài system design luyện trong 45 phút.
 
 ---
 
-**7. Cache là nơi sinh ra bug kinh dị**
+## Cách dùng notes hằng ngày
 
-Không phải “add Redis là nhanh”.
+1. Mở [middle-backend-interview-plan.md](middle-backend-interview-plan.md) để biết hôm nay ôn gì.
+2. Mở đúng file topic, đọc 60-80 phút.
+3. Tự trả lời thành tiếng 30-40 phút.
+4. Ghi lại câu hỏi chưa chắc vào `notes/middle-interview-qa.md`.
+5. Chỉ làm mini demo khi một concept còn mơ hồ; không mở thêm project lớn trước phỏng vấn.
 
-Mà là:
-
-* cache invalidation
-* stale data
-* thundering herd
-* hot key
-* cache penetration
-* cache stampede
-
-Ví dụ:
-
-1 key product hot bị expire:
-
-```txt
-100k requests
-→ cùng miss cache
-→ đập DB cùng lúc
-→ DB chết
-```
-
-Nên cần:
-
-* singleflight
-* request coalescing
-* staggered TTL
-* background refresh
-
----
-
-**8. Transaction không phải lúc nào cũng dùng được**
-
-Junior:
-
-```txt
-BEGIN
-update order
-call payment API
-send email
-COMMIT
-```
-
-Problem:
-
-* external API không participate trong DB transaction
-* transaction giữ lock quá lâu
-
-Senior sẽ nghĩ:
-
-* saga pattern
-* outbox pattern
-* eventual consistency
-* compensating transaction
-
----
-
-**9. Search keyword tưởng LIKE là đủ**
-
-```sql
-WHERE name LIKE '%iphone%'
-```
-
-Scale lên:
-
-* chậm
-* typo search tệ
-* ranking tệ
-
-Senior sẽ dùng:
-
-* Elasticsearch
-* Meilisearch
-* trigram index
-* full-text index
-* inverted index
-
----
-
-**10. “Chỉ thêm một cột” đôi khi thành incident**
-
-```sql
-ALTER TABLE orders ADD COLUMN ...
-```
-
-Ở bảng vài TB:
-
-* rewrite table
-* lock write
-* replication lag
-* downtime
-
-Senior phải biết:
-
-* online schema migration
-* gh-ost
-* pt-online-schema-change
-* expand/contract migration
-
----
-
-Đặc điểm chung của mấy bài này:
-
-> complexity không nằm ở business logic,
-> mà nằm ở scale, concurrency, consistency, operation, migration, failure mode.
-
-Đó là chỗ khác biệt lớn giữa:
-
-* “code chạy được”
-  vs
-* “system sống được ở production vài năm”.
-
-
-Có rất nhiều. Senior backend thường không “khó” ở thuật toán, mà khó ở chỗ:
-
-> system hoạt động thế nào khi mọi thứ bắt đầu fail, scale, race condition, hoặc dirty data xuất hiện.
-
-Một loạt situation khác rất điển hình:
-
----
-
-**11. Distributed lock tưởng dễ nhưng cực dễ sai**
-
-Ví dụ:
-
-```txt id="w6m3dx"
-cron job generate monthly invoice
-```
-
-Deploy 5 instances.
-
-Nếu không lock:
-
-```txt id="6qdrmy"
-5 instance chạy cùng lúc
-→ generate duplicate invoice
-```
-
-Junior thường:
-
-```txt id="jw1jyb"
-SETNX redis_lock
-```
-
-Nhưng production thật phải nghĩ:
-
-* lock expire giữa chừng
-* process chết
-* clock drift
-* network partition
-* lock ownership
-* fencing token
-
-Đây là lý do distributed locking là topic rất sâu.
-
----
-
-**12. Cron job “đơn giản” nhưng đầy edge case**
-
-Ví dụ:
-
-```txt id="h9ekb4"
-0 0 * * *
-```
-
-Nhưng:
-
-* timezone khác nhau
-* DST (daylight saving)
-* job chạy 2 lần
-* server restart
-* missed schedule
-* long-running job overlap
-
-Senior sẽ nghĩ:
-
-* job idempotency
-* dedup
-* job recovery
-* scheduler persistence
-
----
-
-**13. Unique constraint không solve hết race condition**
-
-Ví dụ register username:
-
-```txt id="04c7v6"
-check username exists
-→ insert
-```
-
-2 request cùng lúc:
-
-```txt id="6gf4mv"
-both pass check
-→ duplicate
-```
-
-Senior sẽ rely vào:
-
-* DB unique constraint
-* transaction isolation
-* retry strategy
-
-Không trust application check.
-
----
-
-**14. Read replica gây stale read**
-
-Flow:
-
-```txt id="pr8d3r"
-write → primary
-read → replica
-```
-
-Có replication lag:
-
-```txt id="u4p9fu"
-user vừa update profile
-→ refresh page
-→ thấy data cũ
-```
-
-Senior sẽ nghĩ:
-
-* read-after-write consistency
-* sticky session
-* primary read fallback
-* causal consistency
-
----
-
-**15. “Retry” có thể làm sập hệ thống**
-
-Ví dụ downstream timeout.
-
-1000 request retry cùng lúc:
-
-```txt id="h1f9hk"
-retry storm
-```
-
-=> service chết hoàn toàn.
-
-Nên cần:
-
-* exponential backoff
-* jitter
-* circuit breaker
-* timeout budget
-
----
-
-**16. N+1 query problem**
-
-Code nhìn đẹp:
-
-```js id="f3pgqt"
-orders.map(order => loadUser(order.userId))
-```
-
-Production:
-
-```txt id="73o6fz"
-1000 orders
-→ 1001 queries
-```
-
-DB chết.
-
-Senior sẽ nghĩ:
-
-* batch loading
-* join
-* dataloader
-* prefetch
-
----
-
-**17. File upload rất nhiều hidden complexity**
-
-Không chỉ:
-
-```txt id="0h1x1h"
-multipart/form-data
-```
-
-Mà còn:
-
-* virus scan
-* content-type spoofing
-* huge file
-* partial upload
-* CDN
-* signed URL
-* image processing queue
-* storage lifecycle
-
----
-
-**18. WebSocket scale không đơn giản**
-
-10 connection dễ.
-
-1 triệu connection:
-
-* connection fanout
-* heartbeat
-* reconnect storm
-* sticky session
-* pub/sub scaling
-* memory per connection
-
-Đây là lý do realtime infra rất khó.
-
----
-
-**19. “Search by nearest location” là bài toán khó**
-
-```txt id="j0dhqo"
-find restaurant near me
-```
-
-Naive:
-
-```sql id="9tb4s6"
-calculate distance for all rows
-```
-
-=> chết.
-
-Senior sẽ dùng:
-
-* geohash
-* PostGIS
-* spatial index
-* bounding box optimization
-
----
-
-**20. Money calculation cực nguy hiểm**
-
-Junior:
-
-```js id="onfjlwm"
-0.1 + 0.2
-```
-
-=> floating point issue.
-
-Senior:
-
-* decimal type
-* smallest currency unit
-* rounding policy
-* currency conversion consistency
-
-Payment system rất ghét float.
-
----
-
-**21. Time là địa ngục**
-
-Ví dụ:
-
-```txt id="v7v3gs"
-store local datetime
-```
-
-Sau này:
-
-* timezone bug
-* DST bug
-* parsing inconsistency
-
-Senior gần như luôn:
-
-```txt id="0nt5o0"
-store UTC
-convert at edge
-```
-
----
-
-**22. “Just send email” cũng phức tạp**
-
-Nếu email provider timeout:
-
-* retry?
-* duplicate email?
-* order success nhưng email fail?
-* transactional email guarantee?
-
-Senior sẽ tách async bằng queue.
-
----
-
-**23. Logging quá nhiều cũng có thể giết system**
-
-Ví dụ:
-
-```txt id="4drj90"
-log every request body
-```
-
-Scale lớn:
-
-* disk full
-* I/O bottleneck
-* expensive ingestion
-* sensitive data leak
-
-Senior sẽ nghĩ:
-
-* structured logging
-* sampling
-* redact PII
-* log level strategy
-
----
-
-**24. Feature flag không đơn giản là if/else**
-
-Production cần:
-
-* percentage rollout
-* tenant rollout
-* instant rollback
-* flag dependency
-* stale flag cleanup
-
-Feature flag system thực ra là infrastructure.
-
----
-
-**25. Multi-tenant architecture**
-
-Nghe đơn giản:
-
-```txt id="8c48gm"
-tenant_id column
-```
-
-Nhưng sau này:
-
-* noisy neighbor
-* tenant isolation
-* data leak risk
-* per-tenant rate limit
-* tenant-specific config
-
-Scale lớn thường phải:
-
-* shard per tenant
-* database per tenant
-
----
-
-**26. Soft delete gây bug âm thầm**
-
-```txt id="v4e4a5"
-deleted_at IS NULL
-```
-
-Quên filter 1 query:
-
-→ lộ data đã xoá.
-
-Ngoài ra còn:
-
-* unique constraint conflict
-* storage growth
-* foreign key complexity
-
----
-
-**27. Event-driven system bị out-of-order**
-
-Ví dụ Kafka:
-
-```txt id="91o3wy"
-OrderCreated
-OrderCancelled
-```
-
-Nhưng consumer nhận:
-
-```txt id="9pjlwm"
-Cancelled trước
-Created sau
-```
-
-Senior phải design:
-
-* ordering strategy
-* versioning
-* state machine
-* idempotent consumer
-
----
-
-**28. API versioning**
-
-Junior:
-
-```txt id="r71x7m"
-change response JSON
-```
-
-Production:
-
-* mobile app cũ chết
-* third-party integration break
-
-Senior phải nghĩ:
-
-* backward compatibility
-* schema evolution
-* deprecation strategy
-
----
-
-**29. Connection pool exhaustion**
-
-DB chưa chết.
-
-Nhưng:
-
-```txt id="x2j8m3"
-max connections reached
-```
-
-vì app leak connection hoặc traffic spike.
-
-Senior phải monitor:
-
-* pool size
-* idle timeout
-* query latency
-* connection lifetime
-
----
-
-**30. “Exactly once” gần như là myth**
-
-Distributed system thực tế:
-
-* at least once
-* at most once
-
-Exactly once thường là:
-
-> simulate bằng idempotency + deduplication.
-
-Đây là realization rất “senior”.
-
----
-
-Sau một thời gian làm backend lớn, mindset sẽ chuyển từ:
-
-```txt id="c9nlt5"
-How to make it work?
-```
-
-sang:
-
-```txt id="8fgn8o"
-How will this fail?
-```
-
-Và đó là lúc bắt đầu bước vào engineering level cao hơn.
