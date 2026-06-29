@@ -186,6 +186,26 @@ Không nên mở public:
 8090 Asynqmon
 ```
 
+Lưu ý quan trọng:
+
+- Nginx/Caddy không phải lớp bảo vệ chính cho Redis/Qdrant nếu các port đó đã bị expose ra internet. Lớp chặn chính phải là EC2 security group và Docker port binding.
+- Redis, Qdrant, Asynqmon chỉ nên bind nội bộ trong Docker network hoặc bind vào `127.0.0.1` trên EC2 host.
+- Không public Qdrant dashboard, Redis, Asynqmon bằng route Nginx/Caddy.
+- Khi cần kiểm tra Qdrant/Asynqmon, SSH vào EC2 hoặc dùng SSH local port forwarding.
+
+Ví dụ SSH port forwarding từ máy local:
+
+```bash
+# Qdrant dashboard local: http://localhost:6333/dashboard
+ssh -i ragchat-demo-key.pem -L 6333:localhost:6333 ubuntu@<ec2-public-dns>
+
+# Asynqmon local: http://localhost:8090
+ssh -i ragchat-demo-key.pem -L 8090:localhost:8090 ubuntu@<ec2-public-dns>
+
+# Redis local debug, nếu thật sự cần
+ssh -i ragchat-demo-key.pem -L 6379:localhost:6379 ubuntu@<ec2-public-dns>
+```
+
 ### RDS security group
 
 Inbound:
@@ -563,6 +583,8 @@ Lưu ý:
 
 - API hiện chạy mặc định port `8099`.
 - Chỉ cần expose `80/443` ra internet, không cần expose `8099`.
+- Không tạo Nginx/Caddy route public tới Redis `6379`, Qdrant `6333/6334`, hoặc Asynqmon `8090`.
+- Nếu cần mở Qdrant dashboard hoặc Asynqmon để debug, dùng SSH port forwarding thay vì public URL.
 - Nếu API có SSE streaming, reverse proxy cần tắt buffering cho endpoint stream.
 - Nếu upload PDF lớn, cần tăng body size limit trong Nginx/Caddy.
 - Nếu frontend và backend khác origin, cần xử lý CORS. Dễ nhất là dùng same-origin qua reverse proxy.
