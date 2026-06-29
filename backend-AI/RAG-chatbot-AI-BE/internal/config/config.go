@@ -256,5 +256,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("OPENAI_EMBEDDING_DIMENSIONS must be greater than 0")
 	}
 
+	if c.OpenAI.ChatModel == "" {
+		return fmt.Errorf("OPENAI_CHAT_MODEL is required")
+	}
+
 	return nil
 }

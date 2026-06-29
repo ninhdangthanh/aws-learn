@@ -1,7 +1,9 @@
 .env
 .DS_Store
 .cache/
+node_modules/
 storage/uploads/
 bin/
 dist/
+frontend/dist/
 coverage.out

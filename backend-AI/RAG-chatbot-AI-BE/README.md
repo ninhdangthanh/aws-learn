@@ -161,9 +161,13 @@ make run-api
 
 # Terminal 2: Background workers
 make run-worker
+
+# Terminal 3: React UI
+cd frontend && npm install && npm run dev
 ```
 
 The API server starts on `http://localhost:8099`.
+The React UI starts on `http://localhost:5173`.
 
 ---
 
@@ -192,6 +196,18 @@ curl http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
 ```
 
 Wait for status to become `ready` (pending → parsing → chunked → embedding → ready).
+
+### List Documents
+
+```bash
+curl "http://localhost:8099/api/v1/documents?page=1&limit=20&status=ready"
+```
+
+### Delete a Document
+
+```bash
+curl -X DELETE http://localhost:8099/api/v1/documents/550e8400-e29b-41d4-a716-446655440000
+```
 
 ### Search Documents
 
@@ -245,11 +261,31 @@ curl -N -X POST http://localhost:8099/api/v1/chat \
   }'
 ```
 
+### Chat Sessions
+
+```bash
+curl "http://localhost:8099/api/v1/chat/sessions?page=1&limit=20"
+
+curl "http://localhost:8099/api/v1/chat/sessions/550e8400-e29b-41d4-a716-446655440000/messages?limit=20"
+```
+
 ### Health Check
 
 ```bash
 curl http://localhost:8099/api/v1/health
 ```
+
+### Frontend Static Build
+
+See `frontend/README.md` for the frontend file map, API contract, and handoff notes.
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Deploy `frontend/dist` as static files on EC2, S3, CloudFront, or any static web host. Set `VITE_API_BASE_URL` during build if the API is not served from the same origin.
 
 ---
 

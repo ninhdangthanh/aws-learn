@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -45,9 +46,16 @@ func (r *ChatRepository) GetSession(ctx context.Context, id uuid.UUID) (model.Ch
 	return session, err
 }
 
-func (r *ChatRepository) ListSessions(ctx context.Context) ([]model.ChatSession, error) {
+func (r *ChatRepository) ListSessions(ctx context.Context, limit, offset int) ([]model.ChatSession, error) {
 	var sessions []model.ChatSession
-	err := r.db.WithContext(ctx).Order("updated_at DESC").Find(&sessions).Error
+	query := r.db.WithContext(ctx).Order("updated_at DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+	err := query.Find(&sessions).Error
 	return sessions, err
 }
 
@@ -65,11 +73,41 @@ func (r *ChatRepository) CreateMessage(ctx context.Context, input CreateChatMess
 	return message, err
 }
 
-func (r *ChatRepository) ListMessagesBySession(ctx context.Context, sessionID uuid.UUID) ([]model.ChatMessage, error) {
+func (r *ChatRepository) ListMessagesBySession(ctx context.Context, sessionID uuid.UUID, limit int) ([]model.ChatMessage, error) {
 	var messages []model.ChatMessage
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Where("session_id = ?", sessionID).
-		Order("created_at ASC").
-		Find(&messages).Error
+		Order("created_at ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&messages).Error
 	return messages, err
+}
+
+func (r *ChatRepository) ListRecentMessagesBySession(ctx context.Context, sessionID uuid.UUID, limit int) ([]model.ChatMessage, error) {
+	var messages []model.ChatMessage
+	query := r.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Order("created_at DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	if err := query.Find(&messages).Error; err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
+	return messages, nil
+}
+
+func (r *ChatRepository) TouchSession(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Model(&model.ChatSession{}).
+		Where("id = ?", id).
+		Update("updated_at", time.Now()).Error
 }

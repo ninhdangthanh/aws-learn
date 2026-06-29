@@ -138,12 +138,12 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 8.1 | LLM service | OpenAI Chat Completions client | [ ] |
-| 8.2 | Prompt template | Context-only answer instruction + citation format | [ ] |
-| 8.3 | RAG orchestration | Embed query -> retrieve chunks -> build prompt -> call LLM | [ ] |
-| 8.4 | Chat endpoint | `POST /api/v1/chat` non-streaming | [ ] |
-| 8.5 | Citation response | Return document/page/snippet from retrieved chunks | [ ] |
-| 8.6 | Usage tracking | Token usage and latency in response | [ ] |
+| 8.1 | LLM service | OpenAI Chat Completions client | [x] |
+| 8.2 | Prompt template | Context-only answer instruction + citation format | [x] |
+| 8.3 | RAG orchestration | Embed query -> retrieve chunks -> build prompt -> call LLM | [x] |
+| 8.4 | Chat endpoint | `POST /api/v1/chat` non-streaming | [x] |
+| 8.5 | Citation response | Return document/page/snippet from retrieved chunks | [x] |
+| 8.6 | Usage tracking | Token usage and latency in response | [x] |
 
 Acceptance criteria:
 
@@ -157,11 +157,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 9.1 | Session creation | Create session when `session_id` is missing | [ ] |
-| 9.2 | Save messages | Persist user and assistant messages | [ ] |
-| 9.3 | Prompt history | Include recent messages in prompt | [ ] |
-| 9.4 | Session list endpoint | `GET /api/v1/chat/sessions` | [ ] |
-| 9.5 | Message list endpoint | `GET /api/v1/chat/sessions/:id/messages` | [ ] |
+| 9.1 | Session creation | Create session when `session_id` is missing | [x] |
+| 9.2 | Save messages | Persist user and assistant messages | [x] |
+| 9.3 | Prompt history | Include recent messages in prompt | [x] |
+| 9.4 | Session list endpoint | `GET /api/v1/chat/sessions` | [x] |
+| 9.5 | Message list endpoint | `GET /api/v1/chat/sessions/:id/messages` | [x] |
 
 Acceptance criteria:
 
@@ -175,10 +175,10 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 10.1 | Streaming LLM client | Consume streaming response from LLM provider | [ ] |
-| 10.2 | SSE handler | Stream token events from `POST /api/v1/chat` | [ ] |
-| 10.3 | Final events | Emit citations, token usage, latency, done event | [ ] |
-| 10.4 | Curl test | Verify with `curl -N` | [ ] |
+| 10.1 | Streaming LLM client | Consume streaming response from LLM provider | [x] |
+| 10.2 | SSE handler | Stream token events from `POST /api/v1/chat` | [x] |
+| 10.3 | Final events | Emit citations, token usage, latency, done event | [x] |
+| 10.4 | Curl test | Verify with `curl -N` | [x] |
 
 Acceptance criteria:
 
@@ -192,13 +192,13 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 11.1 | Health endpoint | Check PostgreSQL, Redis, Qdrant | [ ] |
-| 11.2 | List documents | `GET /api/v1/documents` with pagination/status filter | [ ] |
-| 11.3 | Delete document | Remove document, chunks, and Qdrant vectors | [ ] |
-| 11.4 | Error handling | Consistent error response shape | [ ] |
-| 11.5 | Logging | Request ID, latency, service errors | [ ] |
-| 11.6 | README update | Setup, run, upload, search, chat, stream commands | [ ] |
-| 11.7 | End-to-end test | Manual flow from upload to cited answer | [ ] |
+| 11.1 | Health endpoint | Check PostgreSQL, Redis, Qdrant | [x] |
+| 11.2 | List documents | `GET /api/v1/documents` with pagination/status filter | [x] |
+| 11.3 | Delete document | Remove document, chunks, and Qdrant vectors | [x] |
+| 11.4 | Error handling | Consistent error response shape | [x] |
+| 11.5 | Logging | Request ID, latency, service errors | [x] |
+| 11.6 | README update | Setup, run, upload, search, chat, stream commands | [x] |
+| 11.7 | End-to-end test | Manual flow from upload to cited answer | [x] |
 
 Acceptance criteria:
 
@@ -213,11 +213,11 @@ Acceptance criteria:
 
 | # | Task | Details | Done |
 |---|------|---------|------|
-| 12.1 | React scaffold | Minimal Vite React app with a few pages | [ ] |
-| 12.2 | Upload page | File input + upload button, show status from API | [ ] |
-| 12.3 | Status list | Simple list of documents and status badges | [ ] |
-| 12.4 | Chat/search page | Ask question and show answer with citations | [ ] |
-| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [ ] |
+| 12.1 | React scaffold | Minimal Vite React app with a few pages | [x] |
+| 12.2 | Upload page | File input + upload button, show status from API | [x] |
+| 12.3 | Status list | Simple list of documents and status badges | [x] |
+| 12.4 | Chat/search page | Ask question and show answer with citations | [x] |
+| 12.5 | Mobile-first UI | Basic responsive layout for small screens | [x] |
 | 12.6 | Deploy static build | Deploy as static files on EC2/S3/CloudFront | [ ] |
 
 Acceptance criteria:

@@ -28,6 +28,12 @@ type UpdateDocumentStatusInput struct {
 	ErrorMsg   *string
 }
 
+type ListDocumentsInput struct {
+	Status model.DocumentStatus
+	Limit  int
+	Offset int
+}
+
 func NewDocumentRepository(db *gorm.DB) *DocumentRepository {
 	return &DocumentRepository{
 		db: db,
@@ -58,9 +64,19 @@ func (r *DocumentRepository) Get(ctx context.Context, id uuid.UUID) (model.Docum
 	return document, err
 }
 
-func (r *DocumentRepository) List(ctx context.Context) ([]model.Document, error) {
+func (r *DocumentRepository) List(ctx context.Context, input ListDocumentsInput) ([]model.Document, error) {
 	var documents []model.Document
-	err := r.db.WithContext(ctx).Order("created_at DESC").Find(&documents).Error
+	query := r.db.WithContext(ctx).Order("created_at DESC")
+	if input.Status != "" {
+		query = query.Where("status = ?", input.Status)
+	}
+	if input.Limit > 0 {
+		query = query.Limit(input.Limit)
+	}
+	if input.Offset > 0 {
+		query = query.Offset(input.Offset)
+	}
+	err := query.Find(&documents).Error
 	return documents, err
 }
 
@@ -79,4 +95,17 @@ func (r *DocumentRepository) UpdateStatus(ctx context.Context, input UpdateDocum
 	}
 
 	return r.Get(ctx, input.ID)
+}
+
+func (r *DocumentRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	result := r.db.WithContext(ctx).
+		Where("id = ?", id).
+		Delete(&model.Document{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

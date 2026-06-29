@@ -68,6 +68,13 @@ func (r *VectorRepository) EnsureCollection(ctx context.Context) error {
 	return nil
 }
 
+func (r *VectorRepository) Health(ctx context.Context) error {
+	if _, err := r.client.CollectionExists(ctx, r.collection); err != nil {
+		return fmt.Errorf("check qdrant health: %w", err)
+	}
+	return nil
+}
+
 func (r *VectorRepository) DeleteByDocument(ctx context.Context, documentID uuid.UUID) error {
 	_, err := r.client.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: r.collection,
