@@ -16,7 +16,8 @@ graph TD
     Client <-->|WebAuthn Web API| Authenticator[Browser & Hardware Authenticator]
     Server <-->|SimpleWebAuthn Server| WebAuthnLib[Passkey Verification]
 ```
-
+  
+  
 ### 2. In-Memory Data Store
 
 To keep the demo lightweight and run-ready, the backend utilizes in-memory JavaScript objects as its data store:
