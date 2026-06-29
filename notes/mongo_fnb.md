@@ -1,559 +1,1086 @@
-Khi làm việc với MongoDB ở quy mô cơ bản (CRUD và aggregation đơn giản), các kỹ sư thường có xu hướng nhận định MongoDB dễ vận hành hơn các hệ quản trị cơ sở dữ liệu quan hệ (SQL). Tuy nhiên, khi áp dụng vào hệ thống thực tế ở quy mô lớn (large scale), kiến trúc đa người thuê (multi-tenant), microservices, và đặc biệt là hệ thống F&B thời gian thực (real-time F&B), MongoDB phát sinh nhiều vấn đề kỹ thuật (edge cases) phức tạp, đòi hỏi các giải pháp thiết kế chuyên sâu.
+# MongoDB cho hệ thống F&B - roadmap thực chiến cho Backend 3 YOE
+
+Tài liệu này tập trung vào các vấn đề MongoDB hay gặp khi làm backend F&B/POS/order/kitchen/payment ở mức junior lên middle. Mục tiêu không phải học mọi edge case lớn như sharding, mà là hiểu đúng các điểm dễ làm sai trong production: document design, index, aggregation, transaction, read/write concern, migration và dữ liệu realtime.
+
+Nguyên tắc học:
+
+- Ưu tiên case xuất hiện trong CRUD, reporting, order flow, POS, kitchen display, payment, audit log.
+- Luôn hỏi: query này đọc theo pattern nào, ghi có thường xuyên không, document có lớn dần không, có cần consistency ngay không.
+- Không over-engineer. Sharding chỉ cần biết khái niệm; chưa cần học sâu shard key edge cases nếu chưa vận hành cluster sharded thật.
 
 ---
 
-# 1. Bản chất của mô hình tài liệu (Document Model) và giới hạn của Embedded Documents
+## 1. BSON size overhead: field name cũng tốn storage
 
-Một sai lầm phổ biến khi thiết kế cơ sở dữ liệu với MongoDB là giả định rằng cấu trúc phi chuẩn hóa (denormalization) đồng nghĩa với việc nhúng (embed) toàn bộ dữ liệu liên quan vào một tài liệu duy nhất.
-
-Ví dụ về một cấu trúc tài liệu quá tải (over-embed):
-
-```json id="obmrtu"
-{
-  order: {
-    items: [...],
-    customer: {...},
-    store: {...},
-    payments: [...],
-    coupons: [...],
-    delivery: {...}
-  }
-}
-```
-
-Việc lạm dụng cơ chế nhúng trong môi trường sản xuất (production) dẫn đến các hệ quả sau:
-
-* **Tăng trưởng kích thước tài liệu quá mức (Document growth)**
-* **Tạo ra các tài liệu có tần suất truy cập cao (Hot document)**
-* **Chi phí ghi lại dữ liệu lớn (Rewrite cost)**
-* **Vượt quá giới hạn kích thước tài liệu 16MB của MongoDB**
-* **Xung đột khi cập nhật đồng thời (Concurrent update conflicts)**
-
-**Ví dụ thực tế:**
-
-Trong hệ thống F&B, nếu tài liệu của một bàn ăn nhúng toàn bộ thông tin các đơn hàng hiện tại của bàn đó:
-
-```txt id="opw2jv"
-restaurant table document
-```
-
-Vào giờ cao điểm, khi có nhiều nhân viên phục vụ cùng cập nhật trạng thái bàn ăn tại một thời điểm:
-
-```txt id="p5drxa"
-50 waiter update same document
-```
-
-→ Tranh chấp ghi (`write contention`) sẽ tăng rất cao.
-
-**Giải pháp thiết kế:**
-
-Cần phân tích và cân nhắc giữa phương án nhúng (Embed) và tham chiếu (Reference) dựa trên các tiêu chí:
-
-* **Mẫu đọc dữ liệu (Read pattern)**
-* **Tần suất ghi (Write frequency)**
-* **Độ phân kỳ dữ liệu (Cardinality)**
-* **Tốc độ tăng trưởng của tài liệu (Document growth)**
-
----
-
-# 2. Vấn đề tài liệu nóng (Hot Document Problem)
-
-MongoDB áp dụng cơ chế khóa ở cấp độ tài liệu (document-level locking) khi thực hiện cập nhật.
-
-Ví dụ, cấu trúc lưu trữ doanh thu của một cửa hàng:
-
-```json id="b7bq9y"
-{
-  "_id": "store_1",
-  "todayRevenue": 999999
-}
-```
-
-Khi tất cả các yêu cầu thanh toán đồng thời thực hiện thao tác cộng dồn:
-
-```js id="48rz9g"
-$inc
-```
-
-=> Toàn bộ hệ thống sẽ bị nghẽn (contention) tại một tài liệu duy nhất đó. Ở quy mô lớn, hiện tượng này gây ra:
-
-* **Tranh chấp khóa (Lock contention)**
-* **Hàng đợi ghi bị ùn ứ (Write queue)**
-* **Trễ sao chép dữ liệu giữa các node (Replication lag)**
-
-**Giải pháp khắc phục:**
-
-* **Distributed counters**: Phân tán bộ đếm ra nhiều tài liệu khác nhau.
-* **Bucketed counters**: Gom cụm dữ liệu đếm theo phân đoạn.
-* **Event sourcing**: Lưu trữ dưới dạng chuỗi các sự kiện ghi nhận doanh thu thay vì cập nhật trực tiếp vào một trường số học.
-* **Async aggregation**: Tính toán doanh thu định kỳ thông qua các tác vụ nền bất đồng bộ.
-
----
-
-# 3. Rủi ro hiệu năng từ các chuỗi xử lý tổng hợp (Aggregation Pipeline)
-
-Các chuỗi xử lý tổng hợp phức tạp có thể hoạt động tốt trong môi trường thử nghiệm nhưng lại gây suy giảm hiệu năng nghiêm trọng trong môi trường sản xuất.
+MongoDB lưu document bằng BSON. BSON không chỉ lưu value, mà còn lưu cả tên field trong từng document.
 
 Ví dụ:
 
-```js id="w5k58n"
-[
-  { $match: ... },
-  { $lookup: ... },
-  { $unwind: ... },
-  { $sort: ... }
-]
+```json
+{
+  "customerFirstName": "An",
+  "customerPhoneNumber": "090..."
+}
 ```
 
-Thao tác trên có thể dẫn đến:
+Nếu collection có hàng chục hoặc hàng trăm triệu document, field name dài và lặp lại nhiều sẽ làm tăng:
 
-* **Tràn bộ nhớ RAM (RAM explosion)** do vượt quá giới hạn bộ nhớ của tiến trình.
-* **Ghi dữ liệu tạm ra đĩa cứng (Disk spill)** làm chậm tốc độ truy vấn.
-* **Quét toàn bộ tập hợp (Full collection scan)**.
-* **Giai đoạn chặn truy vấn (Blocking stages)**.
+- Disk usage: tốn dung lượng lưu trữ.
+- Cache pressure: cùng một lượng RAM cache được ít document hơn.
+- Network payload: response lớn hơn nếu trả nhiều document.
+- Backup/restore time: dữ liệu phình to thì vận hành chậm hơn.
 
-Một số toán tử (stages) có chi phí xử lý rất cao trong MongoDB bao gồm:
+Không có nghĩa là phải đặt field kiểu `fn`, `pn` khó đọc. Cách tốt hơn là đặt tên vừa đủ rõ:
 
-* `$lookup` (Tương đương phép JOIN trong SQL)
-* `$group`
-* `$sort`
-* `$facet`
-
-**Lưu ý quan trọng:**
-
-Việc đặt toán tử sắp xếp trước toán tử lọc dữ liệu:
-
-```txt id="xqxykm"
-$sort before $match
+```json
+{
+  "customerName": "An",
+  "phone": "090...",
+  "storeId": "s_001",
+  "createdAt": "2026-06-29T10:00:00.000Z"
+}
 ```
 
-Có thể làm cạn kiệt tài nguyên và gây ngừng hoạt động cho toàn bộ phân cụm (cluster). Để tối ưu hóa, các kỹ sư cần thường xuyên kiểm tra kế hoạch thực thi truy vấn bằng công cụ:
+Case F&B:
 
-```js id="t6sljp"
-.explain("executionStats")
-```
+- `order.items.productDisplayName` có thể ổn vì cần snapshot tên món tại thời điểm order.
+- Nhưng `order.items.productDescriptionForCustomerFrontendLongText` là dấu hiệu field name quá dài.
+- Các field lặp trong item như `quantity`, `price`, `note` nên đặt rõ nhưng gọn: `qty`, `unitPrice`, `note` nếu team thống nhất convention.
+
+Điểm middle cần nhớ:
+
+- Tối ưu field name chỉ đáng quan tâm khi collection rất lớn hoặc document rất nhiều field.
+- Đừng hy sinh readability quá sớm.
+- Nếu payload API lớn, dùng projection trước khi nghĩ tới đổi tên field.
 
 ---
 
-# 4. Đặc thù và giới hạn của chỉ mục (Index) trong MongoDB
+## 2. TTL index không xóa ngay lập tức
 
-Việc tạo chỉ mục không đảm bảo tất cả các truy vấn đều được tối ưu hóa nếu không hiểu rõ nguyên lý hoạt động của MongoDB Index.
+TTL index dùng để tự động xóa document sau một thời điểm hoặc sau một khoảng thời gian.
 
-Ví dụ, với một chỉ mục hỗn hợp (Compound Index):
+Ví dụ:
 
-```js id="xjlwm6"
+```js
+db.sessions.createIndex(
+  { expireAt: 1 },
+  { expireAfterSeconds: 0 }
+)
+```
+
+TTL không chạy realtime. MongoDB có background job quét định kỳ, nên document hết hạn có thể vẫn tồn tại thêm một lúc.
+
+Case F&B nên dùng TTL:
+
+- OTP login cho nhân viên.
+- Session tạm cho POS terminal.
+- Temporary cart hoặc draft order.
+- Idempotency key cho payment request.
+- Short-lived lock hoặc reservation tạm.
+
+Không nên dùng TTL nếu nghiệp vụ yêu cầu xóa chính xác tới từng giây.
+
+Ví dụ sai:
+
+```js
+// Sai nếu business bắt buộc voucher hết hạn đúng tuyệt đối tại 12:00:00
+db.voucherLocks.createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 })
+```
+
+Cách đúng hơn:
+
+- Khi đọc hoặc confirm nghiệp vụ, vẫn check `expireAt > now`.
+- TTL chỉ là cleanup mechanism, không phải business guard.
+
+```js
+db.voucherLocks.findOne({
+  _id: lockId,
+  expireAt: { $gt: new Date() }
+})
+```
+
+Điểm middle cần nhớ:
+
+- TTL index phải đặt trên field kiểu Date.
+- TTL index là single-field index trong use case cơ bản.
+- TTL deletion tạo write load, nên tránh tạo TTL cho lượng document hết hạn cùng lúc quá lớn nếu chưa đo tải.
+
+---
+
+## 3. Aggregation memory limit và `allowDiskUse`
+
+Aggregation pipeline rất tiện, nhưng các stage như `$group`, `$sort`, `$lookup`, `$facet` có thể dùng nhiều memory.
+
+Ví dụ pipeline dễ nặng:
+
+```js
+db.orders.aggregate([
+  { $match: { storeId, createdAt: { $gte: from, $lt: to } } },
+  { $unwind: "$items" },
+  { $group: { _id: "$items.productId", qty: { $sum: "$items.qty" } } },
+  { $sort: { qty: -1 } }
+])
+```
+
+Khi data ít, query chạy ổn. Khi data tăng, `$group` và `$sort` có thể vượt memory limit hoặc spill ra disk nếu bật:
+
+```js
+{ allowDiskUse: true }
+```
+
+`allowDiskUse` giúp query không fail ngay, nhưng không biến query nặng thành query nhanh. Nó thường là dấu hiệu cần tối ưu:
+
+- `$match` càng sớm càng tốt.
+- Chỉ project field cần dùng.
+- Index phải support `$match` và `$sort` nếu có thể.
+- Report nặng nên chạy background job hoặc precompute read model.
+
+Case F&B:
+
+- Top món bán chạy theo ngày.
+- Doanh thu theo cashier/shift.
+- Báo cáo order bị hủy theo reason.
+- Thống kê thời gian chế biến trung bình của kitchen.
+
+Với các report được xem nhiều, nên cân nhắc collection tổng hợp:
+
+```json
+{
+  "storeId": "s_001",
+  "date": "2026-06-29",
+  "productId": "p_001",
+  "soldQty": 128,
+  "grossRevenue": 2560000
+}
+```
+
+Điểm middle cần nhớ:
+
+- Aggregation không thay thế data modeling.
+- Report realtime tuyệt đối thường đắt. Hỏi lại business có chấp nhận delay 1-5 phút không.
+- Luôn chạy `explain("executionStats")` cho query quan trọng.
+
+---
+
+## 4. Unbounded array: mảng tăng vô hạn là anti-pattern
+
+Một document có giới hạn 16MB. Nếu nhúng một mảng có thể tăng mãi, document sẽ ngày càng nặng và chậm update.
+
+Ví dụ không nên:
+
+```json
+{
+  "_id": "table_01",
+  "orders": [
+    "...all orders today..."
+  ]
+}
+```
+
+Hoặc:
+
+```json
+{
+  "_id": "customer_01",
+  "orderHistory": [
+    "...all historical orders..."
+  ]
+}
+```
+
+Vấn đề:
+
+- Document lớn dần.
+- Update bằng `$push` ngày càng tốn chi phí.
+- Dễ chạm giới hạn 16MB.
+- Nếu nhiều request update cùng document, dễ bị write contention.
+
+Cách thiết kế tốt hơn:
+
+1. Separate collection:
+
+```json
+{
+  "_id": "order_001",
+  "customerId": "customer_01",
+  "tableId": "table_01",
+  "storeId": "s_001",
+  "status": "OPEN",
+  "createdAt": "2026-06-29T10:00:00.000Z"
+}
+```
+
+2. Bucket pattern cho dữ liệu log/time-series:
+
+```json
+{
+  "_id": "kitchen_events_s001_2026_06_29_10",
+  "storeId": "s_001",
+  "hour": "2026-06-29T10:00:00.000Z",
+  "events": [
+    { "orderId": "o1", "type": "START_COOKING", "at": "..." }
+  ],
+  "count": 1
+}
+```
+
+3. Capped history:
+
+```js
+db.tables.updateOne(
+  { _id: tableId },
+  {
+    $push: {
+      recentOrderIds: {
+        $each: [orderId],
+        $slice: -20
+      }
+    }
+  }
+)
+```
+
+Điểm middle cần nhớ:
+
+- Embed khi dữ liệu nhỏ, đọc chung thường xuyên, và không tăng vô hạn.
+- Reference khi dữ liệu lớn, tăng liên tục, hoặc có lifecycle riêng.
+- Mảng embedded nên có giới hạn rõ ràng.
+
+---
+
+## 5. Document relocation: document lớn dần sẽ làm update đắt hơn
+
+Khi document tăng kích thước nhiều lần, MongoDB có thể phải di chuyển document trong storage để có đủ chỗ lưu. Việc này làm tăng I/O và chi phí update index pointer.
+
+Các pattern dễ gây vấn đề:
+
+```js
+// Order document bị append log liên tục
+db.orders.updateOne(
+  { _id: orderId },
+  { $push: { statusLogs: newLog } }
+)
+```
+
+```js
+// Customer document bị nhồi toàn bộ lịch sử mua hàng
+db.customers.updateOne(
+  { _id: customerId },
+  { $push: { orderHistory: orderSnapshot } }
+)
+```
+
+Case F&B:
+
+- Order status log: nên tách `order_events`.
+- Payment retry log: nên tách `payment_attempts`.
+- Kitchen event stream: nên tách hoặc bucket.
+- Audit log thay đổi giá món: nên tách collection.
+
+Thiết kế ổn hơn:
+
+```json
+{
+  "_id": "event_001",
+  "orderId": "order_001",
+  "storeId": "s_001",
+  "type": "ORDER_STATUS_CHANGED",
+  "from": "CONFIRMED",
+  "to": "COOKING",
+  "createdAt": "2026-06-29T10:05:00.000Z"
+}
+```
+
+Điểm middle cần nhớ:
+
+- Log/event/history thường không nên nhúng vô hạn vào entity chính.
+- Entity chính chỉ giữ trạng thái hiện tại và vài snapshot quan trọng.
+- Lịch sử chi tiết đưa sang collection riêng để query theo thời gian.
+
+---
+
+## 6. Transaction trong MongoDB: dùng được, nhưng đừng lạm dụng
+
+MongoDB mạnh nhất ở atomic update trên một document. Multi-document transaction có hỗ trợ, nhưng đắt hơn về latency, lock duration và replication overhead.
+
+Nên dùng transaction khi nghiệp vụ thật sự cần all-or-nothing giữa nhiều document.
+
+Ví dụ có thể cần transaction:
+
+- Tạo order và tạo payment intent nội bộ cùng lúc.
+- Chuyển bàn: update table cũ, table mới, order active.
+- Hoàn tiền: update payment, order, ledger entry.
+
+Không nên dùng transaction chỉ vì muốn code nhìn giống SQL.
+
+Ví dụ có thể tránh transaction bằng single-document atomic update:
+
+```js
+db.orders.updateOne(
+  {
+    _id: orderId,
+    status: "CONFIRMED"
+  },
+  {
+    $set: { status: "COOKING", cookingStartedAt: new Date() }
+  }
+)
+```
+
+Nếu `matchedCount = 0`, nghĩa là order không còn ở trạng thái hợp lệ để chuyển.
+
+Pattern thay thế transaction:
+
+- Single-document aggregate: gom dữ liệu cần atomic vào cùng document nếu bounded.
+- Optimistic concurrency: dùng `version`.
+- Idempotency key: chống request payment/order bị retry tạo trùng.
+- Outbox pattern: ghi event trong DB rồi worker publish ra message broker.
+
+Ví dụ optimistic concurrency:
+
+```js
+db.orders.updateOne(
+  { _id: orderId, version: currentVersion },
+  {
+    $set: { status: "PAID" },
+    $inc: { version: 1 }
+  }
+)
+```
+
+Điểm middle cần nhớ:
+
+- Transaction là công cụ, không phải default.
+- Nếu transaction chạy lâu, nguy cơ conflict và timeout tăng.
+- Với payment/order, idempotency thường quan trọng hơn transaction dài.
+
+---
+
+## 7. `$lookup` không phải JOIN miễn phí như SQL
+
+`$lookup` giúp join giữa collections, nhưng MongoDB không tối ưu join như RDBMS. Dùng nhiều `$lookup` trong API realtime có thể làm latency tăng mạnh.
+
+Ví dụ dễ nặng:
+
+```js
+db.orders.aggregate([
+  { $match: { storeId, status: "OPEN" } },
+  {
+    $lookup: {
+      from: "customers",
+      localField: "customerId",
+      foreignField: "_id",
+      as: "customer"
+    }
+  },
+  {
+    $lookup: {
+      from: "payments",
+      localField: "_id",
+      foreignField: "orderId",
+      as: "payments"
+    }
+  }
+])
+```
+
+Cách nghĩ tốt hơn:
+
+- API order list cần field nào thì denormalize snapshot field đó vào order.
+- Dữ liệu thay đổi ít như `customerName`, `tableName`, `storeName` có thể lưu snapshot.
+- Dữ liệu nhạy cảm thay đổi thường xuyên thì reference và query riêng.
+
+Ví dụ order snapshot:
+
+```json
+{
+  "_id": "order_001",
+  "storeId": "s_001",
+  "customerId": "c_001",
+  "customerName": "An",
+  "tableId": "t_01",
+  "tableName": "A1",
+  "status": "OPEN",
+  "total": 250000
+}
+```
+
+Khi nào `$lookup` vẫn ổn:
+
+- Admin report không realtime.
+- Data set nhỏ sau `$match`.
+- Foreign collection có index đúng trên `foreignField`.
+- Pipeline đã được kiểm tra bằng `explain`.
+
+Điểm middle cần nhớ:
+
+- Denormalization trong MongoDB là thiết kế có chủ đích, không phải copy bừa.
+- Snapshot field cần có rule: field nào update theo source, field nào giữ lịch sử tại thời điểm order.
+- `$lookup` nên đứng sau `$match` càng lọc mạnh càng tốt.
+
+---
+
+## 8. Monotonic key và hotspot: không chỉ là chuyện sharding
+
+Phần sharding chuyên sâu tạm bỏ qua. Nhưng vẫn cần hiểu vấn đề key tăng tuần tự vì nó ảnh hưởng index, write pattern và pagination.
+
+Monotonic key là key tăng đều theo thời gian, ví dụ:
+
+- `createdAt`
+- auto-increment number
+- `_id` ObjectId ở mức gần đúng theo thời gian
+
+Với workload ghi cực lớn vào cùng một index range, phần cuối của index có thể trở thành điểm nóng.
+
+Trong hệ F&B thông thường, đây chưa phải vấn đề đầu tiên cần lo. Nhưng cần biết để không thiết kế mọi thứ dựa vào một counter global:
+
+```js
+db.counters.updateOne(
+  { _id: "global_order_no" },
+  { $inc: { value: 1 } }
+)
+```
+
+Thiết kế tốt hơn cho order number:
+
+- Counter theo store + ngày.
+- Không dùng counter global nếu không có yêu cầu nghiệp vụ.
+- Nếu chỉ cần unique ID, dùng ObjectId/UUID.
+
+Ví dụ:
+
+```json
+{
+  "_id": "s001_20260629",
+  "storeId": "s001",
+  "date": "2026-06-29",
+  "seq": 128
+}
+```
+
+Điểm middle cần nhớ:
+
+- Sequence đẹp cho con người đọc không nên là primary design cho database scale.
+- Nếu cần order code như `A001`, scope nó theo store/shift/day.
+- Đừng dùng một document counter cho toàn hệ thống nếu traffic cao.
+
+---
+
+## 9. ObjectId: tận dụng được, nhưng đừng hiểu quá tay
+
+`ObjectId` chứa timestamp nên `_id` thường sortable theo thời gian tạo.
+
+Có thể dùng cho cursor pagination:
+
+```js
+db.orders.find({
+  storeId,
+  _id: { $lt: lastId }
+})
+.sort({ _id: -1 })
+.limit(20)
+```
+
+Có thể tạo ObjectId từ timestamp để query theo khoảng thời gian trong một số trường hợp:
+
+```js
+db.orders.find({
+  _id: {
+    $gte: ObjectId.createFromTime(fromUnix),
+    $lt: ObjectId.createFromTime(toUnix)
+  }
+})
+```
+
+Nhưng trong business app, vẫn nên có `createdAt` rõ ràng nếu:
+
+- Cần timezone/business day.
+- Cần import dữ liệu cũ.
+- Cần sửa thời điểm nghiệp vụ khác thời điểm insert.
+- Cần index theo `storeId + createdAt`.
+
+Case F&B:
+
+- Business day có thể bắt đầu lúc 5:00 sáng, không phải 00:00.
+- Order tạo offline rồi sync lên sau, `_id` timestamp có thể không phản ánh thời điểm bán hàng.
+- Reporting nên dựa vào `orderedAt`, `paidAt`, `businessDate`, không chỉ `_id`.
+
+Điểm middle cần nhớ:
+
+- `_id` hữu ích cho pagination đơn giản.
+- `createdAt`/`paidAt` vẫn cần cho nghiệp vụ rõ ràng.
+- Khi sort bằng `_id`, đảm bảo query có index phù hợp với filter đi kèm.
+
+---
+
+## 10. Pagination: tránh `skip()` cho trang sâu
+
+`skip()` nhìn giống SQL `OFFSET`, nhưng MongoDB vẫn phải đi qua các document bị skip.
+
+Không nên cho list lớn:
+
+```js
+db.orders.find({ storeId })
+  .sort({ createdAt: -1 })
+  .skip(100000)
+  .limit(20)
+```
+
+Nên dùng cursor-based pagination:
+
+```js
+db.orders.find({
+  storeId,
+  createdAt: { $lt: lastCreatedAt }
+})
+.sort({ createdAt: -1 })
+.limit(20)
+```
+
+Nếu nhiều order có cùng `createdAt`, dùng tie-breaker `_id`:
+
+```js
+db.orders.find({
+  storeId,
+  $or: [
+    { createdAt: { $lt: lastCreatedAt } },
+    { createdAt: lastCreatedAt, _id: { $lt: lastId } }
+  ]
+})
+.sort({ createdAt: -1, _id: -1 })
+.limit(20)
+```
+
+Index tương ứng:
+
+```js
+db.orders.createIndex({ storeId: 1, createdAt: -1, _id: -1 })
+```
+
+Case F&B:
+
+- Order history.
+- Transaction list.
+- Kitchen event log.
+- Audit log.
+
+Điểm middle cần nhớ:
+
+- `skip()` ổn cho admin nhỏ hoặc page đầu.
+- Cursor pagination tốt cho infinite scroll và data lớn.
+- Cursor phải stable: sort field nên unique hoặc có tie-breaker.
+
+---
+
+## 11. Over-indexing: index giúp read nhưng làm write chậm
+
+Mỗi index đều phải được cập nhật khi insert/update/delete. Collection càng nhiều index, write càng đắt.
+
+Triệu chứng hay gặp:
+
+- CPU không quá cao nhưng DB vẫn chậm.
+- Insert/update latency tăng.
+- Disk I/O cao.
+- Replication lag tăng.
+- Index size lớn hơn data size quá nhiều.
+
+Case F&B write-heavy:
+
+- Order tạo liên tục.
+- Payment update liên tục.
+- Kitchen status update liên tục.
+- Event/audit log ghi nhiều.
+
+Không nên tạo index theo kiểu thấy query nào cũng thêm index ngay. Cần gom theo access pattern.
+
+Checklist trước khi tạo index:
+
+- Query này có chạy thường xuyên không?
+- Query này có nằm trong API realtime không?
+- Collection có bao nhiêu document?
+- Field có selective không?
+- Index có support sort không?
+- Index mới có làm write path chậm đi đáng kể không?
+
+Điểm middle cần nhớ:
+
+- Index là trade-off giữa read và write.
+- Index ít nhưng đúng thường tốt hơn nhiều index rời rạc.
+- Dùng slow query log/profiler để quyết định, không đoán bằng cảm giác.
+
+---
+
+## 12. Cách thiết kế index thực dụng
+
+Index nên đi từ query pattern, không đi từ field.
+
+Ví dụ API:
+
+```js
+db.orders.find({
+  storeId,
+  status: "OPEN",
+  createdAt: { $gte: from, $lt: to }
+})
+.sort({ createdAt: -1 })
+.limit(50)
+```
+
+Index hợp lý:
+
+```js
+db.orders.createIndex({
+  storeId: 1,
+  status: 1,
+  createdAt: -1
+})
+```
+
+Quy tắc quan trọng:
+
+- Equality fields trước: `storeId`, `status`.
+- Range/sort field sau: `createdAt`.
+- Compound index dùng được tốt nhất theo prefix từ trái sang phải.
+
+Ví dụ index:
+
+```js
 { storeId: 1, createdAt: -1 }
 ```
 
-Nếu thực hiện truy vấn:
+Query dùng tốt:
 
-```js id="kq12eo"
-find({ createdAt: ... })
+```js
+db.orders.find({ storeId }).sort({ createdAt: -1 })
 ```
 
-→ Truy vấn này sẽ **không** sử dụng chỉ mục hiệu quả vì vi phạm nguyên tắc tiền tố (prefix rule).
+Query dùng kém hoặc không đúng kỳ vọng:
 
-Hiệu quả của MongoDB Index phụ thuộc chặt chẽ vào:
-
-* **Quy tắc tiền tố chỉ mục (Prefix rule)**
-* **Thứ tự sắp xếp (Sort order)**
-* **Độ phân kỳ của dữ liệu (Cardinality)**
-
-Việc lạm dụng thiết kế chỉ mục không hợp lý (ví dụ: tạo quá nhiều chỉ mục đồng thời):
-
-```txt id="x9gd2u"
-20 indexes
+```js
+db.orders.find({ createdAt: { $gte: from } })
 ```
 
-Sẽ làm giảm nghiêm trọng hiệu năng của các thao tác ghi (insert/update).
+Vì query bỏ qua prefix `storeId`.
+
+Các loại index nên biết ở level middle:
+
+- Compound index: index nhiều field theo query pattern.
+- Unique index: đảm bảo không trùng, ví dụ `paymentRequestId`.
+- Partial index: chỉ index một phần document, rất hữu ích cho status.
+- TTL index: cleanup data hết hạn.
+- Text index: search cơ bản, không thay thế search engine chuyên dụng.
+
+Ví dụ partial index:
+
+```js
+db.orders.createIndex(
+  { storeId: 1, tableId: 1, createdAt: -1 },
+  { partialFilterExpression: { status: "OPEN" } }
+)
+```
+
+Phù hợp cho query:
+
+```js
+db.orders.find({
+  storeId,
+  tableId,
+  status: "OPEN"
+})
+```
+
+Ví dụ unique index cho idempotency:
+
+```js
+db.paymentRequests.createIndex(
+  { storeId: 1, idempotencyKey: 1 },
+  { unique: true }
+)
+```
+
+Điểm middle cần nhớ:
+
+- Index field order rất quan trọng.
+- Index phải khớp filter + sort.
+- Partial index giúp giảm index size cho data có trạng thái.
+- Unique index là một cách bảo vệ business invariant ở DB level.
 
 ---
 
-# 5. Hệ quả của việc lạm dụng chỉ mục (Over-indexing)
+## 13. Aggregation pipeline: đừng để report kéo sập API
 
-Mỗi thao tác ghi mới hoặc cập nhật dữ liệu đều yêu cầu hệ thống phải cập nhật lại toàn bộ các chỉ mục liên quan. Điều này dẫn đến:
+Pipeline dễ sai nhất khi xử lý quá nhiều document trước khi filter.
 
-* **Tăng lưu lượng xử lý đĩa (Disk I/O)**
-* **Tăng không gian lưu trữ (Disk usage)**
-* **Tăng băng thông sao chép giữa các node (Replication traffic)**
+Không nên:
 
-Đối với các hệ thống F&B có đặc thù ghi dữ liệu liên tục (write-heavy), tình trạng over-indexing là một nguyên nhân phổ biến gây nghẽn hệ thống.
-
-Triệu chứng nhận biết thường gặp:
-
-```txt id="jzzrm9"
-CPU thấp
-DB vẫn chậm
+```js
+db.orders.aggregate([
+  { $sort: { createdAt: -1 } },
+  { $match: { storeId, status: "PAID" } }
+])
 ```
 
-Nguyên nhân xuất phát từ việc tài nguyên hệ thống bị tiêu hao cho việc bảo trì chỉ mục và giới hạn IOPS của ổ cứng.
+Nên:
+
+```js
+db.orders.aggregate([
+  { $match: { storeId, status: "PAID" } },
+  { $sort: { createdAt: -1 } },
+  { $limit: 100 }
+])
+```
+
+Checklist tối ưu aggregation:
+
+- `$match` sớm.
+- `$project` bỏ field lớn không cần dùng.
+- `$sort` nên có index support hoặc sort trên tập nhỏ.
+- `$lookup` sau khi đã filter mạnh.
+- `$facet` cẩn thận vì có thể nhân chi phí.
+- Chạy `explain("executionStats")`.
+
+Ví dụ dùng `explain`:
+
+```js
+db.orders.explain("executionStats").aggregate([
+  { $match: { storeId, status: "PAID" } },
+  { $sort: { createdAt: -1 } },
+  { $limit: 100 }
+])
+```
+
+Cần nhìn:
+
+- `totalDocsExamined`
+- `totalKeysExamined`
+- Có `COLLSCAN` không
+- Execution time
+- Stage nào tốn nhiều nhất
+
+Case F&B:
+
+- Dashboard realtime nên đọc từ read model/tổng hợp sẵn.
+- Báo cáo cuối ngày có thể chạy async.
+- Export Excel lớn nên chạy job và gửi link tải.
+
+Điểm middle cần nhớ:
+
+- Aggregation tốt khi data đã được lọc đúng.
+- API request không nên chạy report quá nặng.
+- Nếu business chấp nhận eventual consistency, precompute là lựa chọn tốt.
 
 ---
 
-# 6. Hiệu năng phân trang và hạn chế của phương thức skip()
+## 14. Hot document: nhiều request cùng update một document
 
-Sử dụng phương thức phân trang truyền thống bằng cách kết hợp `skip()` và `limit()` tương tự như cơ chế `OFFSET` trong SQL:
+MongoDB update atomic theo document. Nếu nhiều request cùng ghi vào một document, document đó thành bottleneck.
 
-```js id="m9u8y1"
-db.orders.find().skip(100000).limit(20)
-```
+Ví dụ không tốt:
 
-MongoDB vẫn phải quét qua tất cả các tài liệu trước đó rồi mới loại bỏ (discard) chúng, gây lãng phí tài nguyên cực kỳ lớn khi số lượng trang tăng lên.
-
-**Giải pháp phân trang tối ưu (Cursor-based Pagination):**
-
-Sử dụng giá trị của tài liệu cuối cùng ở trang trước để làm mốc lọc cho trang tiếp theo:
-
-```js id="7l6zjh"
-find({
-  _id: { $lt: lastId }
-}).limit(20)
-```
-
-Hoặc thiết lập con trỏ (cursor) dựa trên sự kết hợp các trường có tính tuần tự như:
-
-* `createdAt`
-* `_id`
-
----
-
-# 7. Cấu trúc và ứng dụng nâng cao của ObjectId
-
-`ObjectId` trong MongoDB không đơn thuần là một chuỗi định danh ngẫu nhiên mà được cấu tạo từ các thành phần mang thông tin thời gian và định danh:
-
-* **Dấu thời gian (Timestamp)**
-* **Định danh máy chủ (Machine identifier)**
-* **Định danh tiến trình (Process identifier)**
-* **Bộ đếm gia tăng (Incremental counter)**
-
-Do đó:
-
-```txt id="stj25o"
-_id gần như sortable theo thời gian
-```
-
-Các kỹ sư có thể tận dụng đặc tính này để:
-
-* **Thực hiện phân trang bằng con trỏ (Cursor pagination)** mà không cần thêm trường thời gian.
-* **Truy vấn khoảng thời gian (Time range query)** trực tiếp từ `_id`.
-* **Sắp xếp thứ tự ở mức độ cơ bản (Lightweight ordering)**.
-
----
-
-# 8. Thách thức phân mảnh dữ liệu (Sharding) và thiết kế Shard Key
-
-Việc chọn lựa khóa phân mảnh (Shard Key) không chính xác sẽ vô hiệu hóa khả năng mở rộng của phân cụm (cluster) và tạo ra các điểm nghẽn nghiêm trọng.
-
-Shard Key quyết định trực tiếp đến:
-
-* **Sự phân bổ dữ liệu trên các node (Data distribution)**
-* **Khả năng xuất hiện điểm nóng dữ liệu (Hotspots)**
-* **Khả năng mở rộng ngang của hệ thống (Scalability)**
-
-Ví dụ về việc sử dụng Shard Key:
-
-```txt id="c7b2c2"
-storeId
-```
-
-Nếu một cửa hàng có lượng giao dịch vượt trội so với các cửa hàng khác, toàn bộ dữ liệu và lưu lượng truy cập của cửa hàng đó sẽ đổ dồn vào một phân mảnh duy nhất:
-
-```txt id="7emxmq"
-hot shard
-```
-
-Ngược lại, nếu chọn một Shard Key có tính ngẫu nhiên quá cao, các truy vấn tìm kiếm dữ liệu theo cụm sẽ buộc phải quét qua toàn bộ các phân mảnh trong cụm (`scatter-gather query`), làm tăng đáng kể độ trễ truy vấn.
-
-Do đó, thiết kế Shard Key đòi hỏi việc phân tích kỹ lưỡng các yếu tố:
-
-* **Độ phân kỳ dữ liệu (Cardinality)**
-* **Khả năng phân bổ lưu lượng ghi (Write distribution)**
-* **Mẫu truy vấn dữ liệu (Query pattern)**
-* **Tốc độ tăng trưởng tuần tự của trường dữ liệu (Monotonic growth)**
-
----
-
-# 9. Rủi ro từ khóa phân mảnh tăng dần tuần tự (Monotonic Shard Key)
-
-Ví dụ về việc chọn Shard Key tuần tự:
-
-```txt id="5a39ph"
-createdAt
-```
-
-Mọi thao tác thêm mới dữ liệu sẽ dẫn đến hệ quả: tất cả các tài liệu mới đều được ghi vào phân mảnh cuối cùng của cụm. Kết quả là chỉ có một phân mảnh duy nhất chịu tải ghi tại một thời điểm, làm mất đi ý nghĩa của việc chia tách dữ liệu để mở rộng hiệu năng ghi.
-
----
-
-# 10. Giới hạn của toán tử $lookup so với phép JOIN trong SQL
-
-Khả năng tối ưu hóa các phép liên kết dữ liệu giữa các tập hợp của MongoDB kém hiệu quả hơn rất nhiều so với các hệ quản trị cơ sở dữ liệu quan hệ (RDBMS). Việc lạm dụng toán tử `$lookup` sẽ dẫn đến các vấn đề:
-
-* **Đột biến dung lượng bộ nhớ sử dụng (Memory spike)**
-* **Quá tải băng thông mạng giữa các node dữ liệu (Network overhead)**
-* **Phức tạp hóa việc truy vấn trên các cụm đã phân mảnh (Sharding)**
-
-Đối với kiến trúc microservices sử dụng MongoDB, giải pháp tối ưu thường là xây dựng và cập nhật trước các mô hình dữ liệu chuyên biệt cho việc đọc (Precomputed Read Models) thay vì thực hiện liên kết dữ liệu tại thời điểm truy vấn.
-
----
-
-# 11. Chi phí vận hành giao dịch (Transactions) trong MongoDB
-
-Mặc dù MongoDB đã hỗ trợ các giao dịch đa tài liệu (multi-document transactions), cơ chế này đi kèm với chi phí vận hành rất lớn:
-
-* **Chi phí tài nguyên cao (Expensive resource consumption)**
-* **Tăng tải tiến trình sao chép dữ liệu (Replication overhead)**
-* **Thời gian giữ khóa tài liệu kéo dài (Longer locks)**
-* **Lượng thông lượng xử lý của hệ thống giảm mạnh (Throughput degradation)**
-
-Bản chất của MongoDB được tối ưu hóa tối đa cho tính nguyên tử trên một tài liệu đơn lẻ:
-
-```txt id="0kmyjn"
-single document atomicity
-```
-
-Hệ thống không được thiết kế để xử lý tối ưu các luồng công việc phụ thuộc nặng nề vào giao dịch phức tạp như PostgreSQL hay MySQL.
-
----
-
-# 12. Hiện tượng di dịch tài liệu (Document Relocation) do tăng trưởng kích thước
-
-MongoDB lưu trữ các tài liệu trong một tập hợp dưới dạng các khối dữ liệu liên tục trên đĩa cứng. Khi kích thước của một tài liệu tăng lên (ví dụ: thông qua thao tác thêm phần tử vào mảng):
-
-```js id="mjlwmc"
-$push
-```
-
-Và vượt quá dung lượng đã được phân bổ ban đầu, hệ thống buộc phải di chuyển tài liệu đó sang một vùng nhớ mới có đủ không gian trống.
-
-Hệ quả của quá trình này bao gồm:
-
-* **Gây phân mảnh dữ liệu trên đĩa (Fragmentation)**
-* **Tăng đột biến lưu lượng đọc/ghi ổ cứng (I/O usage)**
-* **Buộc phải cập nhật lại tất cả các con trỏ chỉ mục hướng tới tài liệu đó (Index pointer update)**
-
-Ví dụ về các cấu trúc lưu trữ:
-
-```txt id="9g4u5l"
-chat messages array
-order history array
-```
-
-Việc nhúng trực tiếp các mảng dữ liệu này vào tài liệu chính là một lỗi thiết kế nghiêm trọng nếu không có giới hạn kích thước rõ ràng.
-
----
-
-# 13. Mảng tăng trưởng vô hạn (Unbounded Array Anti-pattern)
-
-Lưu trữ một lượng lớn dữ liệu trong một mảng nhúng là một phản khuôn mẫu (anti-pattern) kinh điển:
-
-```json id="6r0ftd"
+```json
 {
-  "messages": [...]
+  "_id": "store_1",
+  "todayRevenue": 999999,
+  "orderCount": 12345
 }
 ```
 
-Thiết kế này sẽ nhanh chóng dẫn đến các lỗi hệ thống:
+Mỗi payment đều:
 
-* Vượt quá giới hạn kích thước tài liệu 16MB.
-* Tốc độ cập nhật tài liệu suy giảm nghiêm trọng theo thời gian.
-* Gây quá tải bộ nhớ đệm của hệ thống.
-
-**Mẫu thiết kế thay thế tiêu chuẩn:**
-
-* **Mẫu thiết kế phân nhóm (Bucket Pattern)**: Chia nhỏ mảng thành các tài liệu có giới hạn số lượng phần tử cố định.
-* **Tách biệt tập hợp (Separate Collection)**: Đưa các phần tử mảng ra một tập hợp riêng biệt và sử dụng liên kết tham chiếu.
-* **Giới hạn số lượng lịch sử (Capped History)**: Chỉ lưu trữ một số lượng phần tử gần nhất nhất định.
-
----
-
-# 14. Rủi ro từ độ trễ sao chép dữ liệu (Replica Lag) trong ứng dụng thời gian thực
-
-Trong kiến trúc sử dụng cơ chế ghi vào node chính (Primary) và đọc từ các node phụ (Secondary) để giảm tải:
-
-```txt id="z6y99j"
-write primary
-read secondary
+```js
+db.storeStats.updateOne(
+  { _id: "store_1" },
+  { $inc: { todayRevenue: amount, orderCount: 1 } }
+)
 ```
 
-Đối với các ứng dụng F&B/POS thời gian thực, độ trễ sao chép (replication lag) giữa các node có thể dẫn đến hiện tượng bất nhất quán dữ liệu nghiêm trọng.
+Khi peak hour, document `store_1` có thể bị write contention.
 
-Ví dụ thực tế:
+Cách tốt hơn:
 
-```txt id="3z5sfe"
-cashier vừa thanh toán
-kitchen screen chưa thấy order
-```
+1. Event source:
 
-Sự bất nhất quán này xuất phát từ độ trễ đồng bộ dữ liệu giữa node Primary và node Secondary. Để kiểm soát vấn đề này, các kỹ sư cần cấu hình chính xác các tham số:
-
-* **Định hướng đọc dữ liệu (Read Preference)**
-* **Mức độ cam kết đọc dữ liệu (Read Concern)**
-* **Mức độ cam kết ghi dữ liệu (Write Concern)**
-
----
-
-# 15. Cân bằng giữa tính nhất quán và hiệu năng qua cấu hình Write Concern
-
-Việc điều chỉnh tham số `Write Concern` quyết định mức độ an toàn của dữ liệu và tốc độ xử lý truy vấn:
-
-* Cấu hình sau cho tốc độ ghi rất nhanh nhưng tiềm ẩn rủi ro mất dữ liệu nếu node Primary gặp sự cố trước khi kịp sao chép:
-
-```js id="l1xjz7"
-w: 1
-```
-
-* Cấu hình sau đảm bảo an toàn và tính nhất quán cao hơn bằng cách yêu cầu xác nhận ghi trên đa số các node, nhưng làm tăng độ trễ (latency) của thao tác ghi:
-
-```js id="bfjlwm"
-w: majority
-```
-
----
-
-# 16. Giới hạn bộ nhớ trong các tác vụ tổng hợp (Aggregation Memory Limit)
-
-Mặc định, mỗi giai đoạn trong một chuỗi xử lý tổng hợp (Aggregation Stage) của MongoDB bị giới hạn dung lượng bộ nhớ sử dụng ở mức:
-
-```txt id="tbd7m6"
-100MB RAM
-```
-
-Nếu vượt quá giới hạn này, truy vấn sẽ bị lỗi trừ khi tùy chọn sau được kích hoạt:
-
-```js id="7x4k17"
-allowDiskUse: true
-```
-
-Tuy nhiên, việc ghi dữ liệu tạm ra đĩa cứng khi kích hoạt tùy chọn này sẽ làm giảm đáng kể tốc độ thực thi truy vấn.
-
----
-
-# 17. Tính chất bất đồng bộ của chỉ mục tự động xóa (TTL Index)
-
-Chỉ mục TTL (Time-To-Live) dựa trên một trường thời gian định sẵn:
-
-```txt id="k80xiu"
-expireAt
-```
-
-Cơ chế này không thực hiện việc xóa tài liệu ngay lập tức khi đạt đến hạn mức. Tiến trình dọn dẹp dữ liệu của TTL Index chạy dưới dạng tác vụ nền (background process) theo các khoảng thời gian định kỳ. Do đó, dữ liệu hết hạn có thể vẫn tồn tại trong cơ sở dữ liệu thêm một khoảng thời gian trễ từ vài phút trước khi thực sự bị loại bỏ.
-
----
-
-# 18. Hạn chế khi sử dụng Change Stream thay thế cho hệ thống Event Bus chuyên dụng
-
-Việc sử dụng cơ chế `Change Stream` của MongoDB để thay thế hoàn toàn cho một hệ thống Event Bus chuyên dụng thường phát sinh nhiều vấn đề kỹ thuật phức tạp ở quy mô lớn:
-
-```txt id="6cyr9u"
-Mongo Change Stream = Event Bus
-```
-
-Hệ quả dài hạn khi hệ thống mở rộng quy mô:
-
-* **Lỗi mất kết nối và tự động kết nối lại (Reconnect issues)**
-* **Quản lý mã khôi phục trạng thái đọc (Resume token management)**
-* **Đảm bảo tính tuần tự của sự kiện (Event ordering issues)**
-* **Quá tải phản hồi ngược (Backpressure)**
-* **Giới hạn thời gian lưu trữ nhật ký ghi của cơ sở dữ liệu (Oplog retention limit)**
-
----
-
-# 19. Chi phí lưu trữ từ định dạng BSON (BSON Size Overhead)
-
-Mặc dù MongoDB hỗ trợ cấu trúc dữ liệu linh hoạt (free schema), định dạng lưu trữ BSON yêu cầu mỗi tài liệu phải lưu trữ kèm theo tên của các trường dữ liệu.
-
-Ví dụ:
-
-```json id="bhb8ji"
+```json
 {
-  "customerFirstName": ...
+  "_id": "rev_event_001",
+  "storeId": "store_1",
+  "orderId": "order_001",
+  "amount": 250000,
+  "createdAt": "2026-06-29T10:00:00.000Z"
 }
 ```
 
-Ở quy mô hàng trăm triệu tài liệu, việc sử dụng các tên trường quá dài và lặp đi lặp lại sẽ tiêu tốn một lượng không gian lưu trữ đĩa cứng và bộ nhớ đệm vô cùng lớn một cách không cần thiết. Do đó, việc tối ưu hóa độ dài của tên trường là một kỹ thuật thiết kế quan trọng ở quy mô lớn.
+2. Bucket counter:
+
+```json
+{
+  "_id": "store_1_2026_06_29_10",
+  "storeId": "store_1",
+  "hour": "2026-06-29T10:00:00.000Z",
+  "revenue": 12000000,
+  "orderCount": 80
+}
+```
+
+3. Async aggregation:
+
+- Ghi order/payment trước.
+- Worker cập nhật summary sau.
+- Dashboard chấp nhận delay ngắn.
+
+Điểm middle cần nhớ:
+
+- Counter global là red flag.
+- Counter theo store/day/hour thường thực tế hơn.
+- Với revenue/payment, event log giúp audit tốt hơn update một field tổng.
 
 ---
 
-# 20. Quản trị cấu trúc dữ liệu (Schema Governance) trong môi trường Schema-less
+## 15. Document model: embed hay reference?
 
-Tính chất linh hoạt về cấu trúc (schema-less) của MongoDB dễ dẫn đến tình trạng suy thoái chất lượng dữ liệu sau một thời gian dài phát triển:
+MongoDB không có nghĩa là nhúng mọi thứ vào một document.
 
-```txt id="g48x0j"
-same field
-3 different types
+Embed phù hợp khi:
+
+- Dữ liệu nhỏ.
+- Luôn đọc chung với parent.
+- Ít update riêng.
+- Vòng đời phụ thuộc parent.
+- Số lượng phần tử có giới hạn.
+
+Reference phù hợp khi:
+
+- Dữ liệu lớn hoặc tăng liên tục.
+- Cần query riêng.
+- Update độc lập.
+- Có lifecycle riêng.
+- Nhiều entity cùng tham chiếu.
+
+Case F&B nên embed:
+
+```json
+{
+  "_id": "order_001",
+  "items": [
+    {
+      "productId": "p_001",
+      "name": "Pho bo",
+      "qty": 2,
+      "unitPrice": 60000
+    }
+  ],
+  "total": 120000
+}
 ```
 
-Ví dụ về sự bất nhất quán kiểu dữ liệu của cùng một trường:
+Vì order item là snapshot tại thời điểm bán. Nếu sau này món đổi tên hoặc đổi giá, order cũ vẫn phải giữ lịch sử đúng.
 
-```js id="wbravv"
-price: "100"
-price: 100
+Case nên reference:
+
+- Customer profile.
+- Payment attempts.
+- Order events/status history.
+- Inventory movements.
+- Audit logs.
+
+Điểm middle cần nhớ:
+
+- Data modeling bắt đầu từ read/write pattern.
+- Denormalization là để phục vụ query cụ thể.
+- Snapshot field cần phân biệt với source of truth.
+
+---
+
+## 16. Read concern, write concern, read preference
+
+Ba khái niệm này rất quan trọng khi làm realtime app.
+
+Write concern quyết định ghi tới mức nào thì MongoDB báo thành công.
+
+```js
+{ w: 1 }
+```
+
+Nhanh hơn, nhưng chỉ cần primary xác nhận.
+
+```js
+{ w: "majority" }
+```
+
+An toàn hơn, đợi đa số replica xác nhận, latency cao hơn.
+
+Read preference quyết định đọc từ đâu:
+
+- `primary`: đọc từ primary, dữ liệu mới nhất hơn.
+- `secondary`: giảm tải primary nhưng có thể stale.
+- `primaryPreferred`, `secondaryPreferred`: tùy tình huống.
+
+Read concern quyết định mức consistency khi đọc:
+
+- `local`: nhanh, có thể đọc dữ liệu chưa majority committed.
+- `majority`: chỉ đọc dữ liệu đã được majority xác nhận.
+
+Case F&B:
+
+- Cashier vừa thanh toán xong mà kitchen screen đọc từ secondary có replication lag, có thể chưa thấy order mới.
+- Customer app vừa đặt món mà order status đọc stale, UI báo sai.
+- Payment success nên ưu tiên consistency hơn latency quá thấp.
+
+Gợi ý thực dụng:
+
+- Flow critical như payment/order status: đọc primary, write concern majority nếu cần độ an toàn cao.
+- Dashboard/report: có thể đọc secondary nếu chấp nhận delay.
+- Audit/payment ledger: ưu tiên correctness.
+- Menu/product list: có thể cache và eventual consistency.
+
+Điểm middle cần nhớ:
+
+- Không phải query nào cũng cần consistency như nhau.
+- Đọc từ secondary không miễn phí; nó đổi latency/load lấy khả năng stale data.
+- Với POS realtime, stale vài giây cũng có thể là bug nghiệp vụ.
+
+---
+
+## 17. Schema governance: schema-less không có nghĩa là vô kỷ luật
+
+MongoDB flexible schema giúp dev nhanh, nhưng dễ tạo data bẩn.
+
+Ví dụ xấu:
+
+```js
+price: "100000"
+price: 100000
 price: null
 ```
 
-Sự bất nhất quán này biến các tác vụ tổng hợp dữ liệu (Aggregation) thành các chuỗi xử lý vô cùng phức tạp và dễ phát sinh lỗi.
+Hậu quả:
 
-**Các biện pháp quản trị dữ liệu cần áp dụng:**
+- Aggregation phải cast phức tạp.
+- Index kém hiệu quả.
+- API phải handle nhiều shape cũ.
+- Migration về sau khó và rủi ro.
 
-* **Kích hoạt tính năng kiểm thực cấu trúc (Schema Validation)** ở cấp độ cơ sở dữ liệu.
-* **Đánh dấu phiên bản tài liệu (Document Versioning)** để quản lý các sự thay đổi cấu trúc.
-* **Xây dựng quy trình chuyển đổi dữ liệu (Migration Pipeline)** rõ ràng.
-* **Thiết lập lớp chuyển đổi dữ liệu nghiêm ngặt (Strict DTO Layer)** ở tầng ứng dụng.
+Cách kiểm soát:
+
+- DTO/schema validation ở application layer.
+- MongoDB collection validator cho field quan trọng.
+- Document versioning khi thay đổi schema lớn.
+- Migration plan rõ ràng.
+- Contract test cho API response quan trọng.
+
+Ví dụ document version:
+
+```json
+{
+  "_id": "order_001",
+  "schemaVersion": 2,
+  "storeId": "s_001",
+  "total": 250000
+}
+```
+
+Điểm middle cần nhớ:
+
+- Flexible schema là quyền chủ động thiết kế, không phải bỏ schema.
+- Field type phải nhất quán.
+- Với money, tránh float; dùng integer minor unit như VND amount.
 
 ---
 
-# 21. Quy trình chuyển đổi dữ liệu (Migration) an toàn trên môi trường sản xuất
+## 18. Migration production: updateMany lớn là nguy hiểm
 
-Việc thực hiện các lệnh cập nhật hàng loạt trực tiếp trên các tập hợp lớn:
+Chạy một lệnh update hàng loạt trên collection lớn có thể gây:
 
-```js id="7p6g8n"
-db.orders.updateMany(...)
+- Replication lag.
+- Oplog tăng mạnh.
+- Lock/contention.
+- CPU/I/O spike.
+- API latency tăng.
+
+Không nên:
+
+```js
+db.orders.updateMany(
+  {},
+  { $set: { schemaVersion: 2 } }
+)
 ```
 
-Với quy mô hàng trăm triệu tài liệu sẽ lập tức dẫn đến các sự cố hệ thống nghiêm trọng như trễ sao chép dữ liệu kéo dài (replication lag), quá tải CPU (CPU spike), và tràn dung lượng nhật ký ghi (oplog overflow).
+Quy trình an toàn hơn:
 
-**Quy trình thực hiện chuyển đổi dữ liệu an toàn:**
+1. Code hỗ trợ cả schema cũ và mới.
+2. Write path bắt đầu ghi schema mới.
+3. Backfill theo batch nhỏ.
+4. Theo dõi lag/latency/error.
+5. Sau khi data ổn định, remove code hỗ trợ schema cũ.
 
-* **Phân đoạn chuyển đổi (Batch Migration)**: Chia nhỏ dữ liệu cần chuyển đổi thành các phân đoạn nhỏ để xử lý tuần tự.
-* **Chuyển đổi cuốn chiếu (Rolling Migration)**.
-* **Chuyển đổi lười (Lazy Migration on Read)**: Chỉ thực hiện cập nhật cấu trúc mới cho tài liệu khi tài liệu đó được ứng dụng truy vấn đến.
-* **Hỗ trợ cấu trúc kép (Dual Schema Support)**: Thiết kế ứng dụng tương thích đồng thời với cả cấu trúc cũ và mới trong quá trình chuyển đổi.
+Ví dụ batch migration:
+
+```js
+db.orders.find({
+  schemaVersion: { $ne: 2 }
+})
+.sort({ _id: 1 })
+.limit(500)
+```
+
+Sau đó update từng batch, nghỉ giữa các batch nếu DB tải cao.
+
+Case F&B:
+
+- Thêm `businessDate` vào orders cũ.
+- Đổi payment status enum.
+- Tách `customerInfo` thành snapshot field.
+- Backfill `storeId` cho collection event cũ.
+
+Điểm middle cần nhớ:
+
+- Migration là rollout process, không chỉ là script.
+- Code phải backward compatible trong giai đoạn chuyển đổi.
+- Luôn có metric để biết migration có làm production chậm không.
 
 ---
 
-# 22. Nợ kỹ thuật (Technical Debt) từ cơ chế Schema linh hoạt
+## 19. Checklist ôn tập cho level middle
 
-Cơ chế "Flexible Schema" mang lại tốc độ phát triển rất nhanh ở giai đoạn đầu của dự án. Tuy nhiên, nếu thiếu sự quản lý chặt chẽ, sau nhiều năm vận hành, một tập hợp dữ liệu có thể tồn tại đồng thời hàng chục phiên bản cấu trúc tài liệu khác nhau:
+Khi review một MongoDB design, tự hỏi:
 
-```txt id="o6s97s"
-same collection
-12 schema versions
-```
+- Collection này phục vụ query pattern nào?
+- Query quan trọng nhất có index chưa?
+- Index có đúng thứ tự equality -> range/sort không?
+- Có field nào type không nhất quán không?
+- Có mảng nào tăng vô hạn không?
+- Có document nào bị nhiều request cùng update không?
+- API realtime có đọc từ secondary gây stale data không?
+- Report nặng có đang chạy trực tiếp trong request không?
+- Có cần transaction thật không, hay single-document atomic update đủ?
+- Có idempotency key cho payment/order retry chưa?
+- Migration có batch, monitor và rollback plan chưa?
 
-Hệ quả là các truy vấn và logic ứng dụng phải gánh chịu những đoạn mã kiểm tra điều kiện vô cùng phức tạp để tương thích với tất cả các phiên bản dữ liệu lịch sử, gây khó khăn cho việc bảo trì hệ thống:
+Các case nên tự luyện:
 
-```txt id="p1n31u"
-if field exists...
-if old format...
-if new format...
-```
+1. Thiết kế collection `orders` cho POS.
+2. Thiết kế index cho order list theo store/status/date.
+3. Làm cursor pagination cho order history.
+4. Thiết kế payment idempotency bằng unique index.
+5. Tách order status history thành `order_events`.
+6. Làm daily revenue summary bằng async aggregation.
+7. Xử lý read/write concern cho payment success.
+8. Viết migration thêm `businessDate` cho orders cũ.
+9. Tối ưu aggregation top-selling products.
+10. Phân biệt field snapshot và source of truth trong order.
 
 ---
 
-# Các chủ đề kỹ thuật chuyên sâu đối với hệ thống Microservices F&B sử dụng MongoDB
+## 20. Những phần tạm chưa cần học sâu
 
-Để xây dựng và vận hành một hệ thống F&B quy mô lớn hoạt động ổn định trên nền tảng MongoDB, các kỹ sư cần tập trung nghiên cứu sâu các chuyên đề sau:
+Các chủ đề dưới đây nên biết tên và khái niệm, nhưng chưa cần đào edge case nếu bạn chưa trực tiếp vận hành hệ lớn:
 
-* **Thiết kế khóa phân mảnh tối ưu (Shard Key Design)**
-* **Quản lý cấu hình mức độ cam kết đọc/ghi (Read/Write Concern)**
-* **Tối ưu hóa các chuỗi xử lý tổng hợp dữ liệu (Aggregation Optimization)**
-* **Áp dụng mẫu thiết kế phân nhóm (Bucket Pattern)**
-* **Triển khai mẫu thiết kế Outbox Pattern trên MongoDB**
-* **Tối ưu hóa cơ chế giám sát thay đổi dữ liệu (Change Stream)**
-* **Đảm bảo tính cô lập trong kiến trúc đa người thuê (Multi-tenant Isolation)**
-* **Giảm thiểu các điểm nóng dữ liệu (Hotspot Mitigation)**
-* **Quản lý phiên bản tài liệu (Document Versioning)**
-* **Hiểu rõ kiến trúc nội tại của MongoDB (Công cụ lưu trữ WiredTiger, cơ chế Oplog, quy trình Replication)**
+- Sharding và shard key design.
+- Balancer/chunk migration.
+- Cross-shard transaction.
+- Change stream thay thế event bus ở scale lớn.
+- Oplog retention tuning chuyên sâu.
+- WiredTiger internal tuning.
 
-Các giải pháp xử lý triệt để những vấn đề trên chính là yếu tố cốt lõi phân biệt năng lực thiết kế hệ thống chuyên nghiệp của một kỹ sư backend cấp cao với các thao tác truy vấn dữ liệu cơ bản.
+Học MongoDB ở level sắp middle nên ưu tiên làm đúng các thứ xuất hiện hằng ngày: model dữ liệu, index, consistency, transaction vừa đủ, aggregation, migration và observability.
