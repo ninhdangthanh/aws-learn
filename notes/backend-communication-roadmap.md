@@ -350,12 +350,38 @@ Khi chỉ cần server push đơn giản, cân nhắc SSE trước WebSocket.
 
 ## 8. API versioning và schema evolution
 
+Version trong backend không chỉ là version của REST API. Nó có thể là version của API contract, database schema, event schema, protobuf, token, optimistic lock hoặc app release.
+
+Mục tiêu của versioning là thay đổi hệ thống mà không làm client/service cũ chết ngay lập tức.
+
 ### REST
 
 * Không xóa/đổi nghĩa field đang public.
 * Thêm field thường backward-compatible.
 * Mobile app cũ có thể tồn tại lâu.
 * Có deprecation plan trước khi bỏ field/version.
+
+Cách version REST thường gặp:
+
+| Cách | Ví dụ | Ghi chú |
+|---|---|---|
+| Path version | `/api/v1/orders` | Dễ hiểu, phổ biến |
+| Header version | `Accept: application/vnd.app.v2+json` | Sạch URL hơn nhưng tooling phức tạp hơn |
+| Query version | `?version=2` | Dễ dùng nhưng ít được ưu tiên cho public API |
+
+Không phải thay đổi nào cũng cần version mới. Thường backward-compatible nếu:
+
+* thêm field mới.
+* thêm endpoint mới.
+* thêm enum value nếu client chịu được unknown.
+
+Breaking change:
+
+* xóa field.
+* đổi type field.
+* đổi ý nghĩa field.
+* đổi required field.
+* đổi format lỗi mà client đang parse.
 
 ### gRPC/protobuf
 
@@ -364,11 +390,117 @@ Khi chỉ cần server push đơn giản, cân nhắc SSE trước WebSocket.
 * Thêm field optional.
 * Consumer phải chịu được unknown field/enum value.
 
+Ví dụ:
+
+```proto
+message Order {
+  string id = 1;
+  string status = 2;
+  reserved 3;
+  reserved "old_field";
+}
+```
+
+Không reuse field number `3` cho field khác vì binary payload cũ có thể bị hiểu sai.
+
 ### Event schema
 
 * Event nên có `event_id`, `event_type`, `version`, `occurred_at`.
 * Consumer phải idempotent.
 * Khi đổi schema, giữ backward compatibility hoặc version event type.
+
+Ví dụ:
+
+```json
+{
+  "event_id": "evt_123",
+  "event_type": "order.created",
+  "version": 2,
+  "occurred_at": "2026-06-30T10:00:00Z",
+  "payload": {}
+}
+```
+
+Event version cần rõ vì consumer có thể deploy chậm hơn producer. Nếu producer đổi payload đột ngột, consumer cũ có thể fail hoặc xử lý sai.
+
+### Database schema version
+
+Database versioning là quản lý migration theo từng version thay vì sửa DB thủ công.
+
+Pattern:
+
+* Mỗi migration có version/timestamp.
+* Migration chạy một lần và được ghi vào `schema_migrations`.
+* Deploy theo hướng backward-compatible.
+* Với bảng lớn, dùng expand/contract migration.
+
+Ví dụ:
+
+```text
+001_create_orders.sql
+002_add_order_status.sql
+003_backfill_order_status.sql
+004_make_order_status_not_null.sql
+```
+
+### Document schema version
+
+Với MongoDB/document store, mỗi document có thể mang `schema_version`.
+
+```json
+{
+  "_id": "menu_1",
+  "schema_version": 3,
+  "items": []
+}
+```
+
+Lợi ích:
+
+* đọc được document cũ và mới trong giai đoạn rolling deploy.
+* migrate dần thay vì migrate toàn bộ ngay lập tức.
+* tránh code mới crash khi gặp document cũ.
+
+### Optimistic lock version
+
+`version` cũng hay dùng để chống lost update.
+
+```sql
+UPDATE products
+SET stock = stock - 1, version = version + 1
+WHERE id = 10 AND version = 7 AND stock > 0;
+```
+
+Nếu affected rows = 0, nghĩa là dữ liệu đã bị người khác sửa hoặc không còn thỏa điều kiện. App cần retry hoặc trả conflict.
+
+### Token/session version
+
+`token_version` dùng để invalidate token cũ.
+
+Ví dụ:
+
+* user đổi mật khẩu.
+* admin revoke toàn bộ session.
+* user logout all devices.
+
+Backend tăng `token_version` trong DB. JWT cũ có version thấp hơn sẽ bị reject.
+
+### App/release version
+
+App version là version của service đang deploy, ví dụ git SHA, Docker image tag, semantic version.
+
+Cần log/export:
+
+* service name.
+* build version/git SHA.
+* deployment environment.
+* migration version.
+
+Khi có incident, biết version nào đang chạy giúp rollback và debug nhanh hơn.
+
+### Câu trả lời phỏng vấn mẫu
+
+> Version trong backend có nhiều lớp: API version cho client contract, protobuf/event schema version cho service communication, database migration version cho schema, document `schema_version` với MongoDB, và optimistic lock `version` để tránh lost update. Khi thay đổi production system, tôi ưu tiên backward compatibility, expand/contract migration và deprecation plan thay vì đổi breaking change đột ngột.
 
 ---
 
@@ -388,3 +520,4 @@ Bạn nên trả lời chắc:
 * Outbox pattern giải quyết vấn đề gì?
 * Webhook cần bảo mật và idempotency ra sao?
 * API versioning tránh breaking change thế nào?
+* Version trong backend gồm API, DB schema, event/protobuf, optimistic lock và token version khác nhau ra sao?

@@ -34,9 +34,9 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 
 Concept nên nắm thêm trong nhóm này:
 
-* PostgreSQL: `EXPLAIN ANALYZE`, composite index, lock wait/deadlock, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
+* PostgreSQL: `EXPLAIN ANALYZE`, composite index, row/table lock, `SELECT ... FOR UPDATE`, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
 * Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, distributed lock và fencing token.
-* MongoDB: schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
+* MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
 
 ---
 
@@ -51,7 +51,7 @@ Concept nên nắm thêm trong nhóm này:
 
 * RabbitMQ: exchange, routing key, queue binding, ack/nack, prefetch, retry, DLQ, poison message, at-least-once delivery, idempotent consumer.
 * gRPC: protobuf field compatibility, unary/server-stream/client-stream/bidi-stream, deadline, status code, interceptor, REST vs gRPC trade-off.
-* API production: rate limit nhiều dimension, idempotency key, request timeout, circuit breaker, graceful shutdown, API versioning, backward compatibility.
+* API production: rate limit nhiều dimension, idempotency key, request timeout, circuit breaker, graceful shutdown, API/backend versioning, backward compatibility.
 
 ---
 
@@ -70,6 +70,12 @@ Khi luyện system design, luôn đi theo thứ tự:
 3. Read path, write path, async path.
 4. Bottleneck và failure mode.
 5. Trade-off và scale path.
+
+Concept nên nắm thêm trong nhóm này:
+
+* Scale dọc: tăng CPU/RAM cho một instance, đơn giản nhưng có giới hạn vật lý và dễ thành single point of failure.
+* Scale ngang: tăng số lượng instances sau load balancer/API gateway, cần stateless app, shared DB/cache/queue, health check và autoscaling.
+* Scale backend không chỉ là thêm app instances; database/cache/queue có thể trở thành bottleneck tiếp theo.
 
 ---
 

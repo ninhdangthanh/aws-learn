@@ -420,6 +420,74 @@ Queue giúp:
 
 # 13. Vertical Scaling Không Cứu Được
 
+## Scale dọc vs scale ngang trong backend
+
+**Scale dọc (vertical scaling)** là tăng tài nguyên cho một instance/máy hiện tại:
+
+```text
+2 CPU / 4GB RAM
+-> 8 CPU / 32GB RAM
+-> 32 CPU / 128GB RAM
+```
+
+Ưu điểm:
+
+* đơn giản.
+* không cần đổi kiến trúc nhiều.
+* phù hợp giai đoạn đầu hoặc bottleneck tạm thời.
+
+Nhược điểm:
+
+* có giới hạn vật lý.
+* máy lớn rất đắt.
+* vẫn có single point of failure nếu chỉ có một instance.
+* không giải quyết tốt traffic spike quá lớn.
+
+**Scale ngang (horizontal scaling)** là tăng số lượng instances:
+
+```text
+1 app instance
+-> 3 app instances
+-> 20 app instances sau load balancer
+```
+
+Ưu điểm:
+
+* tăng throughput bằng cách thêm instance.
+* tăng high availability nếu chạy nhiều AZ/node.
+* instance chết vẫn còn instance khác xử lý.
+* phù hợp stateless backend/API.
+
+Nhược điểm:
+
+* app nên stateless.
+* session phải đưa ra Redis/JWT/database.
+* cần load balancer/service discovery.
+* cần xử lý race condition ở DB/cache/queue.
+* background jobs phải tránh chạy trùng.
+
+Trong backend API, scale ngang thường là hướng chính:
+
+```text
+Client
+-> Load Balancer / API Gateway
+-> App instance 1
+-> App instance 2
+-> App instance 3
+```
+
+Muốn scale ngang tốt, backend cần:
+
+* stateless application layer.
+* shared database/cache/queue.
+* idempotency cho retry.
+* distributed lock hoặc leader election cho job đặc biệt.
+* health check/readiness check.
+* autoscaling theo CPU/RPS/queue backlog/latency.
+* observability để biết scale có thật sự giúp không.
+
+Scale ngang không tự động giải quyết database bottleneck. Nếu mọi app instance cùng đập vào một DB, bottleneck chuyển xuống database. Khi đó cần index, cache, read replica, partitioning, sharding hoặc async queue tùy bài toán.
+
 Không thể:
 
 ```text

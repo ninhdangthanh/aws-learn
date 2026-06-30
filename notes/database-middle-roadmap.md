@@ -114,6 +114,79 @@ Schema design tốt giúp code đơn giản hơn và dữ liệu khó sai hơn.
 *   **Deadlock:** Transaction A giữ lock X và chờ Y, transaction B giữ Y và chờ X. DB thường tự detect và kill một transaction.
 *   **Lock wait:** Request không chết ngay mà chờ transaction khác nhả lock, làm latency tăng cao.
 
+### Row lock, table lock và `SELECT ... FOR UPDATE`
+
+Trong SQL database như PostgreSQL/MySQL, lock thường xuất hiện ở nhiều mức. Middle backend không cần thuộc toàn bộ lock matrix, nhưng cần hiểu lock nào làm request bị chờ và vì sao.
+
+| Loại lock | Khóa cái gì? | Thường gặp khi nào? |
+|---|---|---|
+| Row lock | Một số dòng cụ thể | `UPDATE`, `DELETE`, `SELECT ... FOR UPDATE` |
+| Table lock | Cả bảng hoặc metadata của bảng | DDL, migration, một số `ALTER TABLE`, operation lớn |
+| Advisory lock | Lock logic do app tự định nghĩa | Cron/job chỉ cho một instance chạy |
+
+`UPDATE` và `DELETE` thường tự lấy row lock trên các dòng bị tác động. Không có cú pháp `FOR DELETE`; khi bạn chạy `DELETE FROM ... WHERE ...`, DB tự khóa các row phù hợp để xóa.
+
+`SELECT ... FOR UPDATE` dùng khi muốn đọc một row và khóa nó để transaction khác không sửa cùng lúc.
+
+Ví dụ tránh oversell inventory:
+
+```sql
+BEGIN;
+
+SELECT id, stock
+FROM products
+WHERE id = 10
+FOR UPDATE;
+
+UPDATE products
+SET stock = stock - 1
+WHERE id = 10 AND stock > 0;
+
+COMMIT;
+```
+
+Trong lúc transaction này chưa commit, transaction khác muốn update cùng product row sẽ phải chờ hoặc fail tùy mode.
+
+Các biến thể hay gặp:
+
+| Cú pháp | Ý nghĩa | Use case |
+|---|---|---|
+| `FOR UPDATE` | Khóa row để update/delete | inventory, wallet, booking slot |
+| `FOR NO KEY UPDATE` | Khóa nhẹ hơn `FOR UPDATE` trong PostgreSQL khi không đổi key | update field thường |
+| `FOR SHARE` | Khóa để đọc ổn định, chặn update/delete nhất định | ít dùng hơn trong app backend |
+| `FOR KEY SHARE` | Bảo vệ foreign key/reference | thường do DB dùng nội bộ |
+| `NOWAIT` | Không chờ lock, fail ngay nếu row đang bị khóa | API cần phản hồi nhanh |
+| `SKIP LOCKED` | Bỏ qua row đang bị khóa | job queue bằng DB |
+
+Ví dụ worker lấy job bằng `SKIP LOCKED`:
+
+```sql
+BEGIN;
+
+SELECT id
+FROM jobs
+WHERE status = 'pending'
+ORDER BY created_at
+LIMIT 10
+FOR UPDATE SKIP LOCKED;
+
+UPDATE jobs
+SET status = 'processing'
+WHERE id IN (...);
+
+COMMIT;
+```
+
+Pattern này cho phép nhiều worker cùng lấy job mà không xử lý trùng một row.
+
+Khi dùng lock cần chú ý:
+
+* Transaction càng dài, lock giữ càng lâu.
+* Không gọi external API trong lúc đang giữ lock nếu có thể tránh.
+* Luôn có timeout để tránh request treo.
+* Truy cập các bảng/row theo thứ tự nhất quán để giảm deadlock.
+* Log/monitor lock wait và deadlock count.
+
 ### Optimistic vs. Pessimistic Locking
 
 *   **Pessimistic locking:** Khóa trước khi sửa, ví dụ `SELECT ... FOR UPDATE`. Phù hợp khi xung đột cao, dữ liệu nhạy cảm như số dư, tồn kho.
@@ -436,7 +509,71 @@ Sharding là chia dữ liệu sang nhiều database/node độc lập. Đây là
 
 ---
 
-## 15. MongoDB Schema Validation
+## 15. MongoDB vs PostgreSQL
+
+MongoDB và PostgreSQL không phải cái nào "tốt hơn tuyệt đối". Chọn cái nào phụ thuộc data model, query pattern, consistency requirement, team experience và vận hành production.
+
+| Tiêu chí | PostgreSQL | MongoDB |
+|---|---|---|
+| Mô hình dữ liệu | Relational, bảng, row, foreign key | Document, collection, BSON document |
+| Schema | Rõ, enforce mạnh bằng DB | Linh hoạt, cần schema governance/validation |
+| Quan hệ dữ liệu | Mạnh với join, constraint, transaction | Hợp document aggregate, embed/reference có chọn lọc |
+| Transaction | ACID mạnh, quen thuộc | Có transaction nhưng chi phí cao hơn, không nên lạm dụng |
+| Query phức tạp | SQL mạnh cho join/reporting | Aggregation pipeline mạnh nhưng dễ tốn memory/CPU |
+| Consistency | Strong consistency dễ hơn | Cần hiểu read/write concern, replica lag |
+| Scale | Vertical, read replica, partitioning, sharding khi rất lớn | Replica set, sharding built-in hơn nhưng shard key khó |
+| Use case hợp | order, payment, inventory, user, permission, tài chính | catalog/menu, content/config, event-like document, dữ liệu nested |
+
+### Khi nên chọn PostgreSQL?
+
+* Dữ liệu có quan hệ rõ: user, order, payment, inventory.
+* Cần constraint mạnh: foreign key, unique, check constraint.
+* Cần transaction ACID thường xuyên.
+* Query/reporting cần join.
+* Team cần data integrity được DB bảo vệ.
+
+Ví dụ F&B/POS:
+
+* `orders`, `payments`, `inventory_movements`, `users`, `stores` thường hợp PostgreSQL.
+* Các operation như trừ tồn kho, thanh toán, booking slot cần transaction/locking rõ.
+
+### Khi nên chọn MongoDB?
+
+* Dữ liệu tự nhiên là document/nested object.
+* Shape thay đổi theo tenant/client nhưng vẫn kiểm soát được schema.
+* Đọc một aggregate lớn cùng lúc, ví dụ catalog/menu/config.
+* Muốn embed data con nhỏ để giảm join.
+* Cần phát triển nhanh nhưng vẫn có schema validation và index strategy.
+
+Ví dụ F&B/POS:
+
+* menu/catalog có option groups, modifiers, store-specific config có thể hợp MongoDB nếu đọc theo document.
+* Nhưng order/payment core vẫn cần cân nhắc relational nếu consistency cao.
+
+### Lỗi chọn MongoDB hay gặp
+
+* Nghĩ schema-less là không cần schema.
+* Embed array tăng vô hạn như order logs/comments/events.
+* Dùng `$lookup` như join SQL ở scale lớn.
+* Không thiết kế index theo query pattern.
+* Lạm dụng transaction nhiều document.
+* Shard key sai gây hot shard.
+
+### Lỗi chọn PostgreSQL hay gặp
+
+* Normalize quá mức làm read path phải join quá nhiều.
+* Dùng JSONB để né schema nhưng không governance.
+* Thiếu index cho query phổ biến.
+* Migration bảng lớn không theo expand/contract.
+* Dùng offset pagination trên bảng lớn.
+
+### Câu trả lời phỏng vấn mẫu
+
+> Với dữ liệu core như order, payment, inventory, tôi nghiêng về PostgreSQL vì transaction, constraint và query relational rõ hơn. Với dữ liệu document như menu/catalog/config có cấu trúc nested và thay đổi theo tenant, MongoDB có thể hợp hơn. Nhưng MongoDB không có nghĩa là bỏ schema; production vẫn cần schema validation, index strategy và tránh unbounded array/hot document.
+
+---
+
+## 16. MongoDB Schema Validation
 
 MongoDB là schema-flexible, nhưng production vẫn nên có ràng buộc để tránh data pollution.
 
@@ -447,7 +584,7 @@ MongoDB là schema-flexible, nhưng production vẫn nên có ràng buộc để
 
 ---
 
-## 16. Bảng ghi nhớ Latency/Throughput liên quan DB
+## 17. Bảng ghi nhớ Latency/Throughput liên quan DB
 
 | Kỹ thuật | Latency | Throughput | Ghi chú |
 | --- | --- | --- | --- |
@@ -462,7 +599,7 @@ MongoDB là schema-flexible, nhưng production vẫn nên có ràng buộc để
 
 ---
 
-## 17. PostgreSQL production patterns dễ bị hỏi
+## 18. PostgreSQL production patterns dễ bị hỏi
 
 Phần này gom các tình huống production hay bị hỏi khi CV có PostgreSQL/MySQL và backend API thực tế.
 
@@ -598,7 +735,7 @@ Lựa chọn:
 
 ---
 
-## 18. Checklist năng lực Middle Database
+## 19. Checklist năng lực Middle Database
 
 Bạn có thể tự đánh dấu theo thứ tự:
 
@@ -608,6 +745,7 @@ Bạn có thể tự đánh dấu theo thứ tự:
 *   [ ] Thiết kế schema có constraints hợp lý.
 *   [ ] Hiểu lock wait, deadlock và cách giảm transaction dài.
 *   [ ] Biết optimistic/pessimistic locking dùng khi nào.
+*   [ ] Biết row lock, table lock, `SELECT ... FOR UPDATE`, `NOWAIT`, `SKIP LOCKED`.
 *   [ ] Biết offset pagination chậm vì sao và chuyển sang cursor pagination.
 *   [ ] Biết partitioning giúp gì, cần partition key nào.
 *   [ ] Biết replication lag và read-after-write consistency.
@@ -619,3 +757,4 @@ Bạn có thể tự đánh dấu theo thứ tự:
 *   [ ] Biết migration production theo hướng backward-compatible.
 *   [ ] Biết đọc slow query log và metric DB cơ bản.
 *   [ ] Giải thích được sharding và trade-off mà không over-engineer.
+*   [ ] So sánh được MongoDB vs PostgreSQL theo data model, transaction, query pattern và production trade-off.
