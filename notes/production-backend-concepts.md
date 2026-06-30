@@ -32,6 +32,8 @@ Concept cần nhớ:
 
 Idempotency cần cho payment, order, webhook, sync/offline POS, queue consumer.
 
+Idempotency nghĩa là cùng một operation được gọi nhiều lần nhưng chỉ tạo ra một kết quả/side effect như một lần gọi duy nhất. Nó không có nghĩa là request không bị retry; ngược lại, idempotency tồn tại vì retry, timeout và duplicate message luôn có thể xảy ra.
+
 Pattern:
 
 * client gửi `Idempotency-Key`.
@@ -40,6 +42,245 @@ Pattern:
 * side effect phải có unique constraint/dedup table bảo vệ.
 
 Không nên tin "client không retry". Timeout/network lỗi luôn có thể tạo duplicate.
+
+#### Idempotency khác gì retry và dedup?
+
+| Khái niệm | Ý nghĩa |
+|---|---|
+| Retry | Gọi lại khi request/job lỗi hoặc timeout |
+| Deduplication | Phát hiện và bỏ qua bản ghi/message trùng |
+| Idempotency | Thiết kế operation để retry/duplicate không tạo thêm side effect |
+
+Retry mà không có idempotency có thể làm lỗi nặng hơn, ví dụ charge tiền hai lần hoặc tạo hai order.
+
+#### Khi nào cần idempotency?
+
+Nên có idempotency cho operation có side effect:
+
+* tạo order.
+* charge/refund payment.
+* apply coupon.
+* update inventory.
+* webhook từ payment provider.
+* POS offline sync gửi lại batch sau khi mất mạng.
+* queue consumer xử lý message at-least-once.
+* gửi email/SMS/push notification quan trọng.
+
+Không nhất thiết cần idempotency key cho read-only request như `GET /products`, vì read không tạo side effect. Nhưng read vẫn cần cache consistency/rate limit nếu traffic lớn.
+
+#### Idempotency key lifecycle
+
+Luồng phổ biến:
+
+```text
+Client gửi POST /orders với Idempotency-Key
+-> API hash request body quan trọng
+-> DB insert idempotency record với status=processing
+-> Nếu insert thành công: xử lý business logic
+-> Commit side effect như tạo order/payment
+-> Lưu response/result vào idempotency record, status=succeeded
+-> Retry cùng key: trả lại response cũ
+```
+
+Nếu request cùng key đến khi request đầu đang xử lý:
+
+```text
+Idempotency-Key tồn tại với status=processing
+-> trả 409/425 hoặc response "request is still processing"
+-> client retry sau
+```
+
+Nếu request cùng key nhưng payload khác:
+
+```text
+Idempotency-Key giống nhau
+request_hash khác nhau
+-> reject 409 Conflict
+```
+
+Điểm này rất quan trọng. Nếu không lưu `request_hash`, client có thể vô tình reuse key cho operation khác và nhận response sai.
+
+#### Schema mẫu
+
+Ví dụ bảng idempotency:
+
+```sql
+CREATE TABLE idempotency_keys (
+    key TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    status TEXT NOT NULL, -- processing, succeeded, failed
+    response_status INT,
+    response_body JSONB,
+    resource_type TEXT,
+    resource_id TEXT,
+    locked_until TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+```
+
+Lưu ý:
+
+* `key` nên unique.
+* Có thể scope key theo `user_id/tenant_id` để tránh conflict giữa tenants.
+* `request_hash` chống reuse key với payload khác.
+* `status` giúp xử lý request đang chạy hoặc đã xong.
+* `resource_id` giúp trace tới order/payment thật.
+* `expires_at` giúp cleanup key cũ.
+
+#### Race condition với cùng key
+
+Hai request cùng `Idempotency-Key` có thể đến cùng lúc.
+
+Pattern an toàn:
+
+1. Insert idempotency key với unique constraint.
+2. Chỉ request insert thành công được xử lý side effect.
+3. Request còn lại đọc record hiện có.
+4. Nếu status `processing`, trả trạng thái đang xử lý hoặc đợi ngắn có timeout.
+5. Nếu status `succeeded`, trả lại response cũ.
+
+Không nên check trước rồi insert sau theo kiểu:
+
+```text
+SELECT key
+-> không thấy
+-> cả hai request cùng xử lý
+```
+
+Vì đây là race condition. Unique constraint hoặc transaction/lock phải là lớp bảo vệ cuối.
+
+#### Idempotency cho payment
+
+Payment là ví dụ kinh điển:
+
+```text
+Client gọi charge
+-> server gọi payment provider
+-> client timeout trước khi nhận response
+-> client retry
+```
+
+Nếu không idempotent, user có thể bị charge hai lần.
+
+Pattern:
+
+* Client gửi `Idempotency-Key`.
+* Backend lưu operation key.
+* Khi gọi payment provider, truyền idempotency key nếu provider hỗ trợ.
+* Lưu `payment_intent_id`/`provider_transaction_id`.
+* Retry trả lại trạng thái payment hiện tại thay vì charge lại.
+
+Nên trả lời:
+
+> Với payment, idempotency phải có ở cả phía hệ thống mình và phía payment provider nếu provider hỗ trợ. Backend không được tự động charge lại một operation không có idempotency key.
+
+#### Idempotency cho order/inventory
+
+Tạo order có thể retry vì client timeout.
+
+Pattern:
+
+* `Idempotency-Key` đại diện cho "tạo order này".
+* Nếu retry cùng key, trả lại order cũ.
+* Inventory update vẫn cần transaction/locking riêng để tránh oversell.
+* Idempotency không thay thế isolation/lock.
+
+Điểm phỏng vấn hay:
+
+> Idempotency giúp tránh tạo duplicate order khi retry, nhưng không tự giải quyết oversell. Oversell cần DB transaction, optimistic/pessimistic locking hoặc atomic update.
+
+#### Idempotency cho webhook
+
+Webhook provider thường retry nếu endpoint của mình timeout hoặc trả 5xx.
+
+Pattern:
+
+* Verify signature trước.
+* Dùng `event_id` từ provider làm dedup key.
+* Insert event id vào bảng processed events với unique constraint.
+* Nếu event đã xử lý, trả 200 nhanh.
+* Handler phải chịu được out-of-order event bằng state machine/version.
+
+Ví dụ:
+
+```text
+payment.succeeded event đến 2 lần
+-> lần đầu update order paid
+-> lần hai thấy event_id đã xử lý
+-> trả 200, không update duplicate
+```
+
+#### Idempotency cho queue consumer
+
+RabbitMQ/Kafka thường là at-least-once: message có thể được giao lại.
+
+Pattern:
+
+* Message có `event_id`.
+* Consumer insert `event_id` vào dedup table trước hoặc trong cùng transaction với side effect.
+* Nếu duplicate, ack và bỏ qua.
+* Side effect external cần idempotency key riêng.
+
+Không ack message trước khi side effect thành công. Nếu ack trước rồi crash, message mất nhưng business chưa xử lý xong.
+
+#### Idempotency cho offline POS sync
+
+Offline POS dễ gặp duplicate vì thiết bị mất mạng rồi gửi lại batch.
+
+Pattern:
+
+* Mỗi local operation có `client_operation_id`.
+* Server lưu mapping `device_id + client_operation_id`.
+* Retry cùng operation trả lại kết quả cũ.
+* Conflict cần xử lý theo version/timestamp/business rule.
+* Batch sync nên xử lý từng item idempotent, tránh fail cả batch vì một item trùng.
+
+Đây là ví dụ rất hợp với CV F&B/POS/offline-first.
+
+#### TTL và cleanup
+
+Idempotency key không nên giữ mãi nếu không cần.
+
+TTL phụ thuộc business:
+
+* payment/order: thường giữ lâu hơn, vài ngày đến vài tuần tùy policy.
+* webhook event: giữ theo retry window của provider.
+* POS sync: giữ đủ lâu để thiết bị offline có thể retry.
+* notification: giữ theo campaign/job window.
+
+Cleanup cần cẩn thận để không xóa key quá sớm khi client/provider còn retry.
+
+#### Trạng thái failed xử lý thế nào?
+
+Không phải lỗi nào cũng nên cache mãi.
+
+Gợi ý:
+
+* Validation error: có thể trả lỗi ngay; thường không cần tạo side effect.
+* Business failure deterministic, ví dụ hết hàng: có thể lưu response failed để retry cùng key trả lại cùng lỗi.
+* Transient failure trước side effect, ví dụ DB timeout chưa tạo order: có thể cho retry xử lý lại.
+* Unknown state, ví dụ gọi payment provider timeout không biết charge thành công chưa: phải reconcile/check provider trước khi retry charge.
+
+Unknown state là phần nguy hiểm nhất. Không nên đơn giản retry charge.
+
+#### Lỗi thiết kế thường gặp
+
+* Chỉ lưu idempotency key nhưng không lưu request hash.
+* Check key bằng SELECT rồi xử lý, không có unique constraint.
+* Không lưu response/result nên retry trả kết quả khác.
+* Xóa key quá sớm.
+* Dùng một key cho nhiều loại operation.
+* Idempotency key không scope theo user/tenant.
+* Retry operation non-idempotent như payment charge.
+* Nghĩ idempotency thay thế transaction/locking.
+* Consumer ack message trước khi side effect thành công.
+
+#### Câu trả lời phỏng vấn mẫu
+
+> Idempotency là thiết kế để cùng một operation dù bị retry nhiều lần vẫn chỉ tạo một side effect. Ví dụ tạo order hoặc charge payment, client gửi `Idempotency-Key`, backend lưu key, request hash, trạng thái xử lý và response/result. Nếu retry cùng key và payload giống nhau, tôi trả lại kết quả cũ; nếu cùng key nhưng payload khác, trả conflict. Để chống race condition, bảng idempotency cần unique constraint và request đầu tiên insert thành công mới được xử lý side effect. Với queue/webhook, tôi dùng event id/dedup table vì delivery thường là at-least-once.
 
 ### API versioning
 
@@ -432,4 +673,3 @@ Khi gặp một câu system design hoặc project deep dive, chọn 3-5 failure 
 * Ops: logging, metrics, graceful shutdown, rollback.
 
 Không cần kể hết mọi concept. Điểm mạnh là chọn đúng rủi ro cho bài toán.
-
