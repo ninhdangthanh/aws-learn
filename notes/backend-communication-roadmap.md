@@ -202,6 +202,119 @@ Không retry:
 * authorization error.
 * non-idempotent payment/order operation nếu thiếu idempotency key.
 
+### Circuit breaker là gì?
+
+Circuit breaker là pattern bảo vệ service khỏi việc tiếp tục gọi một dependency đang lỗi/chậm liên tục. Thay vì để request dồn vào dependency rồi làm cạn connection pool, goroutine/thread, memory hoặc timeout budget, circuit breaker sẽ tạm thời "ngắt mạch" và fail fast.
+
+Dependency có thể là:
+
+* payment gateway.
+* service nội bộ qua HTTP/gRPC.
+* LLM/embedding provider.
+* search service như Elasticsearch/Qdrant.
+* Redis/DB trong một số case cần degrade có kiểm soát.
+
+### State machine
+
+| State | Ý nghĩa | Hành vi |
+|---|---|---|
+| Closed | Dependency đang bình thường | Cho request đi qua, ghi nhận success/failure |
+| Open | Dependency lỗi vượt ngưỡng | Chặn request, trả fallback/error nhanh |
+| Half-open | Thử phục hồi sau cooldown | Cho một lượng nhỏ request đi qua để kiểm tra |
+
+Luồng cơ bản:
+
+```text
+Closed
+-> failure rate/timeout vượt ngưỡng
+-> Open
+-> chờ cooldown
+-> Half-open
+-> nếu request thử thành công: Closed
+-> nếu request thử thất bại: Open
+```
+
+### Khi nào mở circuit?
+
+Không nên mở circuit chỉ vì một vài lỗi đơn lẻ. Thường cần tính theo rolling window:
+
+* failure rate, ví dụ > 50% trong 30 giây.
+* timeout rate.
+* số lỗi tối thiểu trước khi đánh giá, ví dụ ít nhất 20 requests.
+* lỗi loại nào được tính: timeout, 5xx, connection refused.
+* lỗi loại nào không tính: 4xx do client input sai.
+
+Ví dụ:
+
+```text
+Trong 60 giây gần nhất:
+- tổng request tới payment provider >= 50
+- timeout/error >= 60%
+=> open circuit trong 30 giây
+```
+
+### Fallback
+
+Fallback phụ thuộc business, không phải lúc nào cũng trả data giả.
+
+Ví dụ fallback hợp lý:
+
+* Search service lỗi: trả kết quả cache gần nhất hoặc thông báo search tạm thời không khả dụng.
+* Recommendation lỗi: ẩn block recommendation.
+* LLM provider lỗi: trả message "không thể tạo câu trả lời lúc này", lưu request để retry nếu phù hợp.
+* Payment lỗi: không tự động charge lại nếu thiếu idempotency; trả trạng thái pending/failed rõ ràng.
+
+Fallback xấu:
+
+* Trả dữ liệu sai để che lỗi.
+* Retry ngầm một operation non-idempotent.
+* Nuốt lỗi khiến user nghĩ thao tác đã thành công.
+
+### Circuit breaker vs retry vs rate limit
+
+| Pattern | Bảo vệ khỏi gì? | Cách hoạt động |
+|---|---|---|
+| Retry | Lỗi tạm thời ngắn hạn | Gọi lại có giới hạn |
+| Timeout | Request treo quá lâu | Cắt request sau deadline |
+| Circuit breaker | Dependency lỗi/chậm liên tục | Tạm dừng gọi dependency, fail fast |
+| Rate limit | Caller gửi quá nhiều request | Giới hạn request đầu vào |
+| Bulkhead | Một dependency làm cạn tài nguyên chung | Tách pool/concurrency theo dependency |
+
+Các pattern này thường dùng chung:
+
+```text
+timeout ngắn
+-> retry có backoff/jitter nếu idempotent
+-> circuit breaker nếu lỗi liên tục
+-> fallback/degrade rõ ràng
+```
+
+### Metrics cần theo dõi
+
+* request count theo dependency.
+* success/error/timeout rate.
+* latency p50/p95/p99.
+* circuit state: closed/open/half-open.
+* số lần circuit open.
+* fallback count.
+* retry count.
+* saturation của connection pool/worker pool.
+
+Log nên có dependency name, request id/correlation id, circuit state và reason circuit open.
+
+### Ví dụ trả lời phỏng vấn
+
+> Nếu service gọi payment provider bị timeout liên tục, tôi sẽ đặt timeout ngắn cho mỗi call, chỉ retry khi request có idempotency key, và dùng circuit breaker theo rolling error rate. Khi circuit open, service fail fast hoặc trả trạng thái payment tạm thời không khả dụng thay vì tiếp tục dồn request vào provider. Tôi cũng expose metrics như error rate, timeout rate, circuit state và fallback count để biết dependency đang phục hồi hay vẫn lỗi.
+
+### Lỗi thiết kế thường gặp
+
+* Không đặt timeout, khiến circuit breaker không cứu được request đang treo quá lâu.
+* Retry quá nhiều trước circuit breaker, làm lỗi nặng hơn.
+* Dùng chung một circuit cho nhiều dependency khác nhau.
+* Không phân biệt lỗi client 4xx và lỗi dependency 5xx/timeout.
+* Fallback trả dữ liệu sai hoặc che mất lỗi quan trọng.
+* Không có metric nên không biết circuit đang open.
+
 ---
 
 ## 6. Webhook
@@ -269,8 +382,9 @@ Bạn nên trả lời chắc:
 * RabbitMQ exchange/queue/binding/routing key là gì?
 * Ack/nack/prefetch ảnh hưởng reliability và throughput ra sao?
 * Retry + DLQ thiết kế thế nào để tránh retry storm?
+* Circuit breaker có những state nào và khác retry/rate limit ra sao?
+* Khi downstream lỗi liên tục, fallback thế nào để không trả dữ liệu sai?
 * Tại sao consumer phải idempotent?
 * Outbox pattern giải quyết vấn đề gì?
 * Webhook cần bảo mật và idempotency ra sao?
 * API versioning tránh breaking change thế nào?
-

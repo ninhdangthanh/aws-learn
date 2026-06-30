@@ -44,14 +44,14 @@ Concept nên nắm thêm trong nhóm này:
 
 | File | Dùng để ôn |
 |---|---|
-| [Backend Communication Roadmap](backend-communication-roadmap.md) | REST/gRPC boundary, RabbitMQ, retry/backoff, DLQ, idempotent consumer, outbox, API versioning, WebSocket scale |
+| [Backend Communication Roadmap](backend-communication-roadmap.md) | REST/gRPC boundary, RabbitMQ, retry/backoff, circuit breaker, DLQ, idempotent consumer, outbox, API versioning, WebSocket scale |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
 
 Concept nên nắm thêm trong nhóm này:
 
 * RabbitMQ: exchange, routing key, queue binding, ack/nack, prefetch, retry, DLQ, poison message, at-least-once delivery, idempotent consumer.
 * gRPC: protobuf field compatibility, unary/server-stream/client-stream/bidi-stream, deadline, status code, interceptor, REST vs gRPC trade-off.
-* API production: rate limit nhiều dimension, idempotency key, request timeout, graceful shutdown, API versioning, backward compatibility.
+* API production: rate limit nhiều dimension, idempotency key, request timeout, circuit breaker, graceful shutdown, API versioning, backward compatibility.
 
 ---
 
@@ -61,6 +61,7 @@ Concept nên nắm thêm trong nhóm này:
 |---|---|
 | [Scale System Questions](scale_system_question.md) | DNS, CDN, WAF, load balancer, API gateway, stateless app, autoscaling, cache, queue, database, sharding, observability |
 | [Production Backend Concepts](production-backend-concepts.md) | Checklist failure mode theo từng topic để đưa vào system design answer |
+| [Production Scale Metrics](production-scale-metrics.md) | Map số liệu production theo CV: users, CCU, RPS/TPS, latency, data volume, throughput và mức độ bạn trực tiếp chạm |
 
 Khi luyện system design, luôn đi theo thứ tự:
 
@@ -85,6 +86,7 @@ Output nên có trước khi phỏng vấn:
 * 8-10 câu Q&A deep dive cho mỗi project.
 * 2 câu chuyện STAR từ kinh nghiệm làm việc thật.
 * 2 bài system design luyện trong 45 phút.
+* 1 bảng production metrics đã điền số thật hoặc ghi rõ phần nào chưa sở hữu metric.
 
 ---
 
@@ -95,4 +97,3 @@ Output nên có trước khi phỏng vấn:
 3. Tự trả lời thành tiếng 30-40 phút.
 4. Ghi lại câu hỏi chưa chắc vào `notes/middle-interview-qa.md`.
 5. Chỉ làm mini demo khi một concept còn mơ hồ; không mở thêm project lớn trước phỏng vấn.
-

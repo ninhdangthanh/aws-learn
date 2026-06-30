@@ -71,7 +71,7 @@ Mỗi ngày đọc/review notes 60-80 phút, sau đó 30-40 phút tự trả l�
 | 16 | RabbitMQ | exchange, routing key, ack/nack, prefetch, retry, DLQ, at-least-once, idempotent consumer | producer/consumer + DLQ |
 | 17 | gRPC | protobuf, unary vs streaming, deadline, status code, backward compatibility, gRPC vs REST | unary hello + deadline |
 | 18 | Microservice | modular monolith vs microservice, service boundary, sync/async, outbox, Saga concept, observability | ADR 1 trang từ RAG đã làm |
-| 19 | System design 1 | URL shortener hoặc notification system: requirements, API, data model, scale, cache, failure | vẽ 45 phút |
+| 19 | Production metrics + system design 1 | users/CCU/RPS/TPS/latency/data volume map theo CV; URL shortener hoặc notification system | điền `production-scale-metrics.md` + vẽ 45 phút |
 | 20 | System design 2 | flash sale/inventory: concurrency, DB lock, idempotency, queue, oversell, hot key | vẽ 45 phút |
 | 21 | Mock interview | Go + DB/Redis + project deep dive + 1 system design | ghi âm 45-60 phút |
 
@@ -96,6 +96,7 @@ Mỗi ngày đọc/review notes 60-80 phút, sau đó 30-40 phút tự trả l�
 - [ ] Giải thích cache-aside, cache invalidation/stampede, Redis TTL/AOF/PubSub.
 - [ ] Giải thích RabbitMQ retry/DLQ/idempotency và gRPC deadline/protobuf compatibility.
 - [ ] Làm được ít nhất 2 bài system design trong 45 phút, có failure mode và trade-off.
+- [ ] Nói được production scale theo CV: U2U 50,000+ users/~2,000 CCU, phần mình trực tiếp chạm, và phần RPS/TPS/latency nào chưa có số thì biết cách đo.
 
 ## Thứ tự dùng notes hiện có
 
@@ -104,8 +105,9 @@ Mỗi ngày đọc/review notes 60-80 phút, sau đó 30-40 phút tự trả l�
 3. `database-middle-roadmap.md`: ngày 11-12.
 4. `backend-communication-roadmap.md`: ngày 9, 16-18 cho REST/gRPC/RabbitMQ/retry/outbox/API versioning.
 5. `production-backend-concepts.md`: lấy tình huống rate limit, pagination, idempotency, queue, cache cho ngày 10, 13, 19-20.
-6. `scale_system_question.md`: ngày 19-21.
-7. `articles.txt`: chỉ mở bài liên quan đến chủ đề của ngày đó; không research lan man.
+6. `production-scale-metrics.md`: ngày 19, chuẩn bị users/CCU/RPS/TPS/latency/data volume/throughput theo CV và mức độ mình chạm.
+7. `scale_system_question.md`: ngày 19-21.
+8. `articles.txt`: chỉ mở bài liên quan đến chủ đề của ngày đó; không research lan man.
 
 ## Sau 3 tuần
 
