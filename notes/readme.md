@@ -45,6 +45,7 @@ Concept nên nắm thêm trong nhóm này:
 | File | Dùng để ôn |
 |---|---|
 | [Backend Communication Roadmap](backend-communication-roadmap.md) | REST/gRPC boundary, RabbitMQ, retry/backoff, circuit breaker, DLQ, idempotent consumer, outbox, API versioning, WebSocket scale |
+| [Backend Security Middle Notes](backend-security-middle.md) | Rainbow table, brute-force login, scraping/bot abuse, app-level DDoS, SQL/NoSQL injection, CORS, API key, webhook signature, file upload security |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
 
 Concept nên nắm thêm trong nhóm này:
@@ -52,6 +53,7 @@ Concept nên nắm thêm trong nhóm này:
 * RabbitMQ: exchange, routing key, queue binding, ack/nack, prefetch, retry, DLQ, poison message, at-least-once delivery, idempotent consumer.
 * gRPC: protobuf field compatibility, unary/server-stream/client-stream/bidi-stream, deadline, status code, interceptor, REST vs gRPC trade-off.
 * API production: rate limit nhiều dimension, idempotency key, request timeout, circuit breaker, graceful shutdown, API/backend versioning, backward compatibility.
+* Backend security: password hashing với salt, chống brute-force theo nhiều dimension, anti-scraping, CORS đúng vai trò, SQL/NoSQL injection, webhook signature, upload file an toàn.
 
 ---
 
