@@ -45,7 +45,6 @@ func (l *TokenBucketLimiter) Allow(key string, cost float64) bool {
 	st.lastRefill = now
 
 	if st.tokens < cost {
-		l.stateByKey[key] = st
 		return false
 	}
 

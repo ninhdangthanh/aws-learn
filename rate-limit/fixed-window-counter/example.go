@@ -39,7 +39,6 @@ func (l *FixedWindowLimiter) Allow(key string) bool {
 	}
 
 	if st.count >= l.limit {
-		l.state[key] = st
 		return false
 	}
 
