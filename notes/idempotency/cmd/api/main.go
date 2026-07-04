@@ -16,6 +16,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 type createOrderRequest struct {
@@ -52,8 +53,20 @@ func main() {
 		log.Fatal(err)
 	}
 
+	rdb := redis.NewClient(&redis.Options{
+		Addr: getenv("REDIS_ADDR", "localhost:6379"),
+	})
+	defer rdb.Close()
+
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		log.Fatal(err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /orders", createOrderHandler(db))
+	mux.HandleFunc("POST /payments/add", paymentHandler(db, rdb, "add_payment"))
+	mux.HandleFunc("POST /payments/pay-off", paymentHandler(db, rdb, "pay_off"))
+	mux.HandleFunc("POST /payments/refund", paymentHandler(db, rdb, "pass_order_refund"))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

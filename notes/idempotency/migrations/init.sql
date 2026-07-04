@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS processed_events (
     PRIMARY KEY (consumer_name, event_id)
 );
 
+CREATE TABLE IF NOT EXISTS payments (
+    id BIGSERIAL PRIMARY KEY,
+    operation TEXT NOT NULL CHECK (operation IN ('add_payment', 'pay_off', 'pass_order_refund')),
+    order_id TEXT NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+    idempotency_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- Redis là fast-path cache có TTL, không phải nguồn sự thật bền vững:
+    -- restart/eviction có thể xoá key trước khi client kịp retry.
+    -- Với tiền, constraint này ở Postgres mới là lưới an toàn cuối chặn
+    -- double-charge/double-refund, kể cả khi cache Redis đã mất.
+    UNIQUE (operation, idempotency_key)
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
     id BIGSERIAL PRIMARY KEY,
     order_id BIGINT NOT NULL,

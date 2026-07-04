@@ -2,14 +2,16 @@
 
 Lab này tách riêng từ phần `Idempotency` trong `notes/production-backend-concepts.md`.
 
-Mục tiêu là nhìn được 2 nơi idempotency hay xuất hiện trong production backend:
+Mục tiêu là nhìn được 3 nơi idempotency hay xuất hiện trong production backend:
 
 1. **HTTP API có side effect**: client retry `POST /orders` nhưng không tạo duplicate order.
 2. **Queue consumer at-least-once**: RabbitMQ redeliver message nhưng consumer không xử lý side effect lần hai.
+3. **API tiền (payment/refund)**: `add-payment`, `pay-off`, `pass-order-refund` — nơi double-charge/double-refund là rủi ro thật, không chỉ là duplicate row vô hại như order.
 
 Stack dùng đúng theo ghi chú:
 
-* PostgreSQL: lưu idempotency key, request hash, response/result, dedup event và order thật.
+* PostgreSQL: lưu idempotency key, request hash, response/result, dedup event, order và payment thật.
+* Redis: idempotency store riêng cho nhóm API payment (TTL native, so sánh với cách dùng Postgres ở Demo 1).
 * RabbitMQ: reproduce duplicate message ở consumer.
 * Go: code ngắn, nhiều comment để học luồng.
 * `time.Sleep`: cố tình làm request/worker chậm để dễ reproduce race condition, timeout và duplicate.
@@ -37,6 +39,12 @@ RabbitMQ Management UI:
 http://localhost:15672
 username: guest
 password: guest
+```
+
+Redis chạy ở:
+
+```text
+localhost:6379
 ```
 
 ---
@@ -139,6 +147,92 @@ docker compose exec postgres psql -U app -d idempotency_lab \
 
 ---
 
+## Demo 4: Payment idempotency với Redis (double-charge/double-refund)
+
+`add-payment`, `pay-off`, `pass-order-refund` dùng chung một handler
+(`paymentHandler` trong `cmd/api/payment.go`), khác Demo 1 ở chỗ idempotency
+store là **Redis** (TTL native qua `SETNX` + `SET ... EX`) thay vì Postgres.
+
+Route:
+
+```text
+POST /payments/add       operation = add_payment
+POST /payments/pay-off   operation = pay_off
+POST /payments/refund    operation = pass_order_refund
+```
+
+### 4a. Retry cùng key trong lúc đang xử lý -> không double-charge
+
+```bash
+curl -i -X POST http://localhost:8080/payments/add \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pay-001' \
+  -d '{"order_id":"ord-1","amount":150.00,"simulate_delay_seconds":4}'
+```
+
+Trong lúc request trên còn sleep, mở terminal khác gọi lại cùng key + cùng body:
+
+```bash
+curl -i -X POST 'http://localhost:8080/payments/add?wait=1' \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pay-001' \
+  -d '{"order_id":"ord-1","amount":150.00,"simulate_delay_seconds":4}'
+```
+
+Cả hai response trả về cùng `payment_id`. Kiểm tra chỉ có 1 dòng tiền:
+
+```bash
+docker compose exec postgres psql -U app -d idempotency_lab \
+  -c "select id, operation, order_id, amount, idempotency_key from payments order by id;"
+```
+
+### 4b. Reuse key nhưng đổi amount -> reject
+
+```bash
+curl -i -X POST http://localhost:8080/payments/add \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pay-001' \
+  -d '{"order_id":"ord-1","amount":999.00,"simulate_delay_seconds":0}'
+```
+
+Kết quả: `409 Conflict` — giống hệt lý do ở Demo 2, chỉ khác nơi lưu
+`request_hash` là Redis thay vì cột trong Postgres.
+
+### 4c. Cache Redis mất trước khi client retry -> DB vẫn chặn được double-charge
+
+Đây là điểm khác biệt quan trọng nhất so với Demo 1: Redis có TTL và có thể
+mất dữ liệu (restart, eviction, `FLUSHALL`) trước khi client kịp retry bằng
+key cũ. Mô phỏng:
+
+```bash
+docker compose exec redis redis-cli FLUSHALL
+
+curl -i -X POST http://localhost:8080/payments/add \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pay-001' \
+  -d '{"order_id":"ord-1","amount":150.00,"simulate_delay_seconds":0}'
+```
+
+Response trả `200` với `"status":"already_processed"`, trỏ đúng
+`payment_id` cũ — **không tạo dòng tiền thứ hai** — nhờ
+`UNIQUE (operation, idempotency_key)` trên bảng `payments`
+(`chargeAndStorePayment` bắt lỗi `23505` và tra lại record cũ thay vì để
+lọt duplicate).
+
+```bash
+docker compose exec postgres psql -U app -d idempotency_lab \
+  -c "select id, operation, order_id, amount, idempotency_key from payments order by id;"
+```
+
+Vẫn chỉ 1 dòng, dù Redis "quên mất" là request này đã xử lý rồi.
+
+**Bài học:** Redis (hay bất kỳ cache có TTL nào) là fast-path để trả lời
+nhanh và tránh chạy lại side effect không cần thiết, nhưng với thao tác
+liên quan đến tiền, luôn cần một unique constraint ở tầng lưu trữ bền vững
+làm lưới an toàn cuối — cache có thể sai/mất, constraint ở DB thì không.
+
+---
+
 ## Mapping với lý thuyết
 
 | Lý thuyết | Nằm ở đâu trong lab |
@@ -152,6 +246,9 @@ docker compose exec postgres psql -U app -d idempotency_lab \
 | Queue at-least-once | RabbitMQ trong `cmd/worker` |
 | Dedup message | bảng `processed_events` |
 | Không ack trước side effect | worker chỉ `Ack` sau transaction thành công |
+| Idempotency store bằng Redis + TTL | `cmd/api/payment.go`, hàm `paymentHandler` |
+| Payment/refund API rủi ro double-charge | route `/payments/add`, `/payments/pay-off`, `/payments/refund` |
+| Cache có TTL vẫn cần backstop bền vững | `UNIQUE (operation, idempotency_key)` trên bảng `payments` |
 
 ---
 
