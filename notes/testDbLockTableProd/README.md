@@ -195,7 +195,7 @@ CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
 - Luôn set `lock_timeout` khi chạy DDL, để lệnh fail nhanh và rõ ràng thay vì
   treo và chặn cả hàng đợi phía sau.
 
-## 7. Lab: tái hiện lock table thật trên local
+## 7. Lab: tái hiện lock table thật trên local (Go)
 
 Phần trên là lý thuyết — phần này là một bảng ~2 triệu dòng chạy trong
 Docker, để bạn tự tay chạy các thao tác nguy hiểm ở trên và **thấy lock xảy
@@ -205,22 +205,29 @@ ra thật**, thay vì chỉ tin vào bảng risk ở trên.
 
 ```
 docker-compose.yml   # PostgreSQL 16, bật log_lock_waits
-main.js              # seed bảng lock_test_orders với ~2 triệu row (faker)
-lock-demos/
-  db.js                          # config kết nối dùng chung
-  long-transaction.js            # "session A": giữ transaction mở lâu
-  create-index.js                # CREATE INDEX thường (blocking)
-  create-index-concurrently.js   # CREATE INDEX CONCURRENTLY (không block)
-  add-column-not-null-default.js # ALTER TABLE ADD COLUMN NOT NULL DEFAULT
-  watch-locks.js                 # theo dõi ai đang block ai theo thời gian thực
+go.mod
+internal/db/         # config kết nối dùng chung (pgx), đọc từ env var
+cmd/
+  seed/                    # seed bảng lock_test_orders với ~2 triệu row
+                           # (gofakeit + pgx.CopyFrom, ~3s cho 2 triệu row)
+  longtx/                  # "session A": giữ transaction mở lâu
+  createindex/             # CREATE INDEX thường (blocking)
+  createindexconcurrently/ # CREATE INDEX CONCURRENTLY (không block)
+  addcolumn/               # ALTER TABLE ADD COLUMN NOT NULL DEFAULT
+  watchlocks/              # theo dõi ai đang block ai theo thời gian thực
 ```
+
+Driver Postgres dùng `github.com/jackc/pgx/v5`, data giả dùng
+`github.com/brianvoe/gofakeit/v7` — tương đương faker.js bên Node
+(nhiều generator, không cần gọi mạng). Seed dùng `pgx.CopyFrom` (giao thức
+`COPY`) thay vì insert nhiều dòng/lần, nên nhanh hơn hẳn so với cách
+`INSERT ... SELECT unnest(...)`.
 
 ### Chạy lab
 
 ```bash
 docker-compose up -d   # khởi động Postgres ở localhost:5432 (user/pass/db: app/app/lock_lab)
-npm install
-npm run seed           # tạo bảng lock_test_orders + insert 2,000,000 rows (~18s)
+go run ./cmd/seed      # tạo bảng lock_test_orders + insert 2,000,000 rows (~3s)
 ```
 
 ### Tái hiện lock: `CREATE INDEX` bị chặn bởi 1 transaction đang mở
@@ -231,27 +238,27 @@ Terminal 1 — mô phỏng một transaction "quên" COMMIT (giống 1 request c
 trên production):
 
 ```bash
-npm run lock:long-transaction   # giữ transaction mở 30s (đổi bằng HOLD_SECONDS=...)
+go run ./cmd/longtx   # giữ transaction mở 30s (đổi bằng HOLD_SECONDS=...)
 ```
 
 Terminal 2 — trong lúc terminal 1 còn đang chạy:
 
 ```bash
-npm run lock:create-index
+go run ./cmd/createindex
 ```
 
-Bạn sẽ thấy `create-index` đứng im, chờ đúng tới khi terminal 1 `COMMIT` thì
+Bạn sẽ thấy `createindex` đứng im, chờ đúng tới khi terminal 1 `COMMIT` thì
 mới chạy tiếp — đây chính là `SHARE` lock của `CREATE INDEX` xếp hàng phía
 sau `ROW EXCLUSIVE` lock mà transaction ở terminal 1 đang giữ.
 
-Chạy lại y hệt kịch bản trên nhưng thay `lock:create-index` bằng
-`lock:create-index-concurrently` để thấy sự khác biệt: nó vẫn phải **chờ**
+Chạy lại y hệt kịch bản trên nhưng thay `createindex` bằng
+`createindexconcurrently` để thấy sự khác biệt: nó vẫn phải **chờ**
 transaction cũ kết thúc (để đảm bảo snapshot nhất quán), nhưng trong lúc chờ,
 **write bình thường từ session khác không hề bị chặn** — khác hẳn với bản
 `CREATE INDEX` thường, vốn chặn cả `INSERT`/`UPDATE`/`DELETE` của mọi
 session khác.
 
-Cũng có thể thử `npm run lock:add-column` để thấy `ALTER TABLE ... ADD
+Cũng có thể thử `go run ./cmd/addcolumn` để thấy `ALTER TABLE ... ADD
 COLUMN ... NOT NULL DEFAULT ...` xếp hàng chờ tương tự — vì nó cần
 `ACCESS EXCLUSIVE`, lock mạnh nhất, xung đột với mọi lock khác kể cả
 `ACCESS SHARE`.
@@ -261,10 +268,10 @@ COLUMN ... NOT NULL DEFAULT ...` xếp hàng chờ tương tự — vì nó cầ
 Mở thêm 1 terminal, chạy song song với 2 terminal trên:
 
 ```bash
-npm run lock:watch
+go run ./cmd/watchlocks
 ```
 
-Script này poll `pg_locks` + `pg_stat_activity` mỗi giây và in ra PID nào
+Lệnh này poll `pg_locks` + `pg_stat_activity` mỗi giây và in ra PID nào
 đang bị PID nào chặn, cùng câu query tương ứng — đúng những gì bạn sẽ dùng
 để debug incident lock thật trên production.
 
