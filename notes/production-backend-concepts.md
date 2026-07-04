@@ -57,7 +57,8 @@ Cách hiểu thực tế:
 
 * `Deduplication` là kỹ thuật phát hiện "đây là cùng một request/message/event/bản ghi đã thấy rồi" để bỏ qua hoặc trả lại kết quả cũ. Nó thường gặp nhất ở message/event consumer như RabbitMQ, Kafka, SQS, webhook event, nhưng không chỉ giới hạn ở consumer. API cũng có thể dedup bằng `Idempotency-Key`, batch job có thể dedup bằng business key, import data có thể dedup bằng unique constraint.
 * `Idempotency` là tính chất của cả một operation. Nghĩa là operation đó dù bị gọi lại, retry hoặc nhận duplicate thì side effect cuối cùng vẫn như chạy một lần. Vì vậy idempotency có thể áp dụng ở nhiều boundary: HTTP API, queue consumer, webhook handler, cron job, CLI tool, batch job hoặc offline sync.
-* Deduplication thường là một trong các cách để đạt idempotency, nhưng không phải toàn bộ idempotency. Một operation idempotent còn có thể cần request hash, response replay, state machine, transaction, unique constraint, optimistic lock hoặc idempotency key truyền sang external provider.
+* Nói chính xác: deduplication là một kỹ thuật thường dùng để implement idempotency, nhưng không phải lúc nào cũng là toàn bộ idempotency. Deduplication giúp phát hiện duplicate và tránh xử lý lặp; idempotency rộng hơn, là tính chất operation có thể retry/duplicate mà không tạo thêm side effect.
+* Một operation idempotent còn có thể cần request hash, response replay, state machine, transaction, unique constraint, optimistic lock hoặc idempotency key truyền sang external provider.
 
 Ví dụ:
 
