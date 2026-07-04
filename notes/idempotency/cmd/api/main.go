@@ -59,8 +59,8 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	log.Println("api listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Println("api listening on :8011")
+	log.Fatal(http.ListenAndServe(":8011", mux))
 }
 
 func createOrderHandler(db *sql.DB) http.HandlerFunc {

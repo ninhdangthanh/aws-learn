@@ -10,6 +10,8 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	_ "github.com/lib/pq"
 )
 
 const consumerName = "send_order_created_notification"
@@ -29,6 +31,10 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
 
 	conn, err := amqp.Dial(rabbitURL)
 	if err != nil {
