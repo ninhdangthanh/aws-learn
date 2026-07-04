@@ -1,0 +1,595 @@
+# RabbitMQ Middle Backend Notes
+
+File này gom kiến thức RabbitMQ ở mức Middle Backend: đủ để giải thích trong phỏng vấn, thiết kế worker production cơ bản, và biết các lỗi thường gặp khi dùng queue.
+
+RabbitMQ không chỉ là "đẩy job vào queue". Cần hiểu message đi qua exchange, routing, queue, consumer, ack/nack, retry, DLQ, prefetch và idempotency.
+
+---
+
+## 1. RabbitMQ dùng để làm gì?
+
+RabbitMQ là message broker. Producer publish message vào broker, consumer lấy message ra xử lý.
+
+Use case phổ biến:
+
+* gửi email/SMS/push notification async;
+* xử lý ảnh/video/file sau upload;
+* đồng bộ dữ liệu giữa service;
+* webhook/event processing;
+* POS/offline sync batch;
+* report/export job;
+* bảo vệ downstream bằng queue và worker limit.
+
+RabbitMQ hợp với task queue, command/event async, routing linh hoạt và workload cần ack/retry rõ ràng. Nếu cần event log dài hạn, replay nhiều consumer group độc lập và throughput stream rất lớn, Kafka thường hợp hơn.
+
+---
+
+## 2. Thành phần cốt lõi
+
+```text
+Producer
+  -> Exchange
+      -> Binding + routing key
+          -> Queue
+              -> Consumer
+```
+
+| Thành phần | Ý nghĩa |
+|---|---|
+| Producer | App publish message |
+| Exchange | Nhận message và quyết định route đi đâu |
+| Queue | Lưu message chờ consumer xử lý |
+| Binding | Quy tắc nối exchange với queue |
+| Routing key | Key producer gắn vào message để exchange route |
+| Consumer | Worker đọc message từ queue |
+| Ack | Consumer báo xử lý thành công, broker xóa message |
+| Nack/Reject | Consumer báo xử lý thất bại |
+
+Điểm dễ nhầm:
+
+* Producer thường publish vào exchange, không publish thẳng vào queue.
+* Queue không tự biết nhận message nào nếu chưa bind với exchange.
+* Một exchange có thể route tới nhiều queue.
+* Một queue có thể nhận message từ nhiều binding.
+
+---
+
+## 3. Exchange Types
+
+### Direct exchange
+
+Route khi routing key match chính xác binding key.
+
+```text
+exchange: order.direct
+binding: order.created -> queue order-created-worker
+message routing_key=order.created -> vào order-created-worker
+```
+
+Hợp với task rõ loại:
+
+* `email.send`
+* `order.created`
+* `payment.refund`
+
+### Topic exchange
+
+Route theo pattern.
+
+Ký tự đặc biệt:
+
+* `*` match đúng 1 word.
+* `#` match 0 hoặc nhiều word.
+
+Ví dụ:
+
+```text
+binding order.*       match order.created, order.cancelled
+binding order.#       match order.created.vn.hcm
+binding *.created     match order.created, payment.created
+```
+
+Hợp với domain event nhiều loại và cần subscribe theo nhóm.
+
+### Fanout exchange
+
+Broadcast message tới tất cả queue đã bind, bỏ qua routing key.
+
+Hợp với:
+
+* cache invalidation;
+* notification nhiều worker khác nhau;
+* một event cần nhiều service cùng biết.
+
+Ví dụ:
+
+```text
+user.updated
+  -> email-projection-queue
+  -> search-index-queue
+  -> analytics-queue
+```
+
+### Headers exchange
+
+Route theo message headers thay vì routing key. Ít dùng hơn direct/topic/fanout vì phức tạp hơn và khó debug hơn.
+
+---
+
+## 4. Queue, Binding Và Routing Key
+
+Ví dụ đặt tên dễ hiểu:
+
+```text
+exchange: order.events
+type: topic
+
+queue: payment-order-events
+binding key: order.created
+
+queue: analytics-order-events
+binding key: order.#
+```
+
+Khi producer publish:
+
+```text
+routing_key = order.created
+```
+
+RabbitMQ route message tới:
+
+* `payment-order-events`, vì match `order.created`;
+* `analytics-order-events`, vì match `order.#`.
+
+Middle backend cần phân biệt:
+
+* Routing key quyết định message đi tới queue nào.
+* Message id/event id dùng cho idempotency, không phải routing.
+* Queue name là nơi consumer subscribe.
+
+---
+
+## 5. Ack, Nack, Reject Và At-Least-Once
+
+RabbitMQ thường dùng manual ack cho worker production.
+
+```text
+Consumer nhận message
+-> xử lý business
+-> ghi DB/side effect thành công
+-> Ack
+-> RabbitMQ xóa message khỏi queue
+```
+
+Nếu consumer crash trước khi ack:
+
+```text
+Message đang unacked
+-> connection/channel đóng
+-> RabbitMQ redeliver message cho consumer khác hoặc consumer sau
+```
+
+Vì vậy RabbitMQ là **at-least-once delivery** trong flow manual ack: message có thể được xử lý hơn một lần.
+
+### Ack
+
+Dùng khi xử lý thành công, hoặc khi message duplicate đã được xử lý trước đó.
+
+### Nack/reject with requeue=true
+
+Message quay lại queue. Cẩn thận vì có thể tạo loop:
+
+```text
+consumer lỗi
+-> nack requeue
+-> nhận lại ngay
+-> lỗi tiếp
+-> retry storm
+```
+
+### Nack/reject with requeue=false
+
+Message bị drop hoặc đi vào DLX nếu queue có cấu hình dead-letter.
+
+Rule thực tế:
+
+* Lỗi transient: retry có delay/backoff, không requeue ngay vô hạn.
+* Lỗi permanent/poison message: đưa vào DLQ.
+* Duplicate message: ack và bỏ qua.
+
+---
+
+## 6. Prefetch Và Backpressure
+
+Prefetch giới hạn số message unacked mà RabbitMQ giao cho một consumer.
+
+Ví dụ:
+
+```text
+prefetch = 10
+```
+
+Nghĩa là RabbitMQ giao tối đa 10 message chưa ack cho consumer đó. Khi consumer ack bớt, broker mới giao thêm.
+
+Tại sao cần prefetch:
+
+* tránh một consumer ôm quá nhiều message;
+* tạo backpressure khi worker chậm;
+* giới hạn số job chạy song song;
+* bảo vệ DB/API downstream khỏi bị worker bắn quá tải.
+
+Trade-off:
+
+| Prefetch | Ưu điểm | Rủi ro |
+|---|---|---|
+| 1 | Dễ giữ thứ tự hơn, ít overload | Throughput thấp |
+| 10-100 | Throughput tốt hơn | Có thể tăng memory, xử lý song song làm ordering khó |
+| Quá cao | Consumer nhận nhiều message | Unacked nhiều, shutdown/rebalance chậm |
+
+Với job nặng hoặc cần thứ tự theo aggregate, bắt đầu với `prefetch=1` hoặc thấp. Với job nhẹ, tăng dần và đo DB/API latency.
+
+---
+
+## 7. Retry, DLX Và DLQ
+
+### DLX là gì?
+
+DLX là Dead Letter Exchange. Khi message bị dead-letter, RabbitMQ publish message đó sang DLX.
+
+Message có thể dead-letter khi:
+
+* consumer `nack/reject` với `requeue=false`;
+* message hết TTL trong queue;
+* queue vượt max length;
+* quorum queue delivery limit bị vượt.
+
+### DLQ là gì?
+
+DLQ là Dead Letter Queue. Thường DLX route message lỗi vào DLQ để debug/manual retry.
+
+```text
+main queue
+  x-dead-letter-exchange = order.dlx
+
+order.dlx
+  -> order.dlq
+```
+
+DLX là exchange, DLQ là queue. Hai khái niệm này hay bị gọi lẫn.
+
+---
+
+## 8. Retry Có Delay Bằng TTL + DLX
+
+> Có lab Go tái hiện đúng pattern này (retry 10s → 30s → DLQ, dùng
+> default exchange, DLQ để manual check) ở
+> [`queueEdgeCases/readme.md`](queueEdgeCases/readme.md#7-lab-tái-hiện-retry-10s--30s--dlq-go).
+
+Không nên retry bằng cách `nack(requeue=true)` liên tục. Pattern phổ biến là dùng retry queue có TTL.
+
+```text
+order.events.queue
+  -> consumer fail transient
+  -> publish sang order.events.retry.5s
+  -> ack message hiện tại
+
+order.events.retry.5s
+  x-message-ttl = 5000
+  x-dead-letter-exchange = order.events.exchange
+  x-dead-letter-routing-key = order.created
+
+Sau 5s:
+  RabbitMQ dead-letter message về exchange chính
+  -> route lại vào order.events.queue
+```
+
+Retry nhiều tầng:
+
+```text
+order.events.queue
+order.events.retry.5s
+order.events.retry.30s
+order.events.retry.5m
+order.events.dlq
+```
+
+Consumer/app thường quản lý retry count trong header:
+
+```json
+{
+  "x-retry-count": 2
+}
+```
+
+Logic:
+
+```text
+retry_count = 0 -> publish retry.5s
+retry_count = 1 -> publish retry.30s
+retry_count = 2 -> publish retry.5m
+retry_count >= 3 -> publish DLQ
+```
+
+RabbitMQ không tự tăng `retry_count` cho app. App phải đọc header, tăng count rồi publish sang retry queue phù hợp.
+
+---
+
+## 9. Poison Message
+
+Poison message là message sẽ luôn fail nếu retry lại.
+
+Ví dụ:
+
+* JSON sai schema;
+* thiếu field bắt buộc;
+* event version không còn hỗ trợ;
+* business state không thể xử lý;
+* data corrupt.
+
+Không nên retry poison message vô hạn. Nên:
+
+* validate message ở boundary consumer;
+* lỗi schema rõ ràng thì đưa DLQ;
+* log `event_id`, routing key, retry count, error;
+* có tool/manual process để inspect và replay nếu cần.
+
+---
+
+## 10. Idempotent Consumer
+
+Vì RabbitMQ at-least-once, consumer phải idempotent.
+
+Pattern:
+
+```text
+BEGIN TX
+  insert processed_events(event_id, consumer_name)
+  nếu duplicate -> commit/rollback nhẹ, ack, bỏ qua
+
+  xử lý side effect trong DB
+  update business state
+COMMIT
+ACK
+```
+
+Schema mẫu:
+
+```sql
+CREATE TABLE processed_events (
+    consumer_name TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (consumer_name, event_id)
+);
+```
+
+Điểm quan trọng:
+
+* `event_id` phải stable khi retry.
+* Dedup record nên ghi cùng transaction với side effect DB.
+* Nếu side effect là external API, dùng idempotency key ở external provider nếu có.
+* Duplicate message nên `ack`, không `nack`.
+
+Xem lab thực hành: [Idempotency Lab](idempotency/README.md).
+
+---
+
+## 11. Ordering
+
+RabbitMQ giữ thứ tự trong một queue theo điều kiện lý tưởng, nhưng production dễ phá ordering:
+
+* nhiều consumer cùng đọc một queue;
+* prefetch > 1;
+* message fail rồi retry;
+* consumer xử lý chậm/nhanh khác nhau;
+* publish từ nhiều producer;
+* redelivery sau crash.
+
+Nếu cần giữ thứ tự theo `order_id`, thường dùng routing theo aggregate:
+
+```text
+hash(order_id) % N -> lane queue
+
+order-events-0
+order-events-1
+order-events-2
+order-events-3
+```
+
+Mỗi lane xử lý tuần tự hơn:
+
+* một consumer active cho mỗi lane nếu cần ordering mạnh;
+* `prefetch=1`;
+* event có `version` hoặc `sequence`;
+* handler có state machine;
+* event out-of-order thì defer/retry, không update bừa.
+
+RabbitMQ không thay thế business version/state machine.
+
+---
+
+## 12. Durable, Persistent Và Reliability
+
+Các khái niệm dễ nhầm:
+
+| Khái niệm | Ý nghĩa |
+|---|---|
+| Durable exchange/queue | Exchange/queue sống qua broker restart |
+| Persistent message | Message được ghi bền hơn qua restart |
+| Publisher confirm | Producer biết broker đã nhận/ghi message |
+| Manual ack | Consumer xác nhận xử lý xong |
+
+Nếu queue durable nhưng message không persistent, broker restart vẫn có thể mất message.
+
+Nếu producer publish mà không dùng publisher confirm, producer có thể tưởng publish thành công trong khi broker chưa chắc nhận bền.
+
+Checklist cho message quan trọng:
+
+* durable exchange/queue;
+* persistent message;
+* publisher confirm;
+* manual ack;
+* retry + DLQ;
+* idempotent consumer.
+
+---
+
+## 13. Publisher Confirm
+
+Publisher confirm giúp producer biết RabbitMQ đã nhận message.
+
+Nếu không có confirm:
+
+```text
+producer publish
+-> network/broker lỗi đúng lúc
+-> producer không chắc message đã vào broker chưa
+```
+
+Với confirm:
+
+```text
+producer publish
+-> chờ broker confirm
+-> nếu confirm fail/timeout thì retry publish
+```
+
+Nhưng retry publish có thể tạo duplicate, nên message vẫn cần `event_id` và consumer idempotent.
+
+---
+
+## 14. Outbox Pattern
+
+Vấn đề:
+
+```text
+DB commit thành công
+publish RabbitMQ fail
+```
+
+hoặc:
+
+```text
+publish RabbitMQ thành công
+DB rollback
+```
+
+Outbox pattern:
+
+```text
+BEGIN TX
+  update orders
+  insert outbox_events(event_id, event_type, payload)
+COMMIT
+
+outbox worker:
+  read unpublished outbox events
+  publish RabbitMQ với publisher confirm
+  mark published
+```
+
+Đổi lại:
+
+* tăng độ phức tạp;
+* cần cleanup outbox;
+* eventual consistency.
+
+Nhưng nó giảm rủi ro mất event giữa DB và broker.
+
+---
+
+## 15. Consumer Concurrency
+
+Các cách scale consumer:
+
+* tăng số consumer process/pod;
+* tăng goroutine/thread xử lý trong mỗi consumer;
+* tăng prefetch;
+* tăng số queue/lane theo partition key.
+
+Không nên chỉ tăng consumer vô hạn. Downstream như PostgreSQL, Redis, third-party API có giới hạn.
+
+Metrics cần nhìn:
+
+* queue depth/backlog;
+* ready messages;
+* unacked messages;
+* consumer count;
+* processing latency;
+* retry rate;
+* DLQ count;
+* DB/API downstream latency;
+* error rate theo routing key/event type.
+
+---
+
+## 16. Graceful Shutdown Consumer
+
+Khi deploy/restart worker:
+
+```text
+stop nhận message mới
+đợi message đang xử lý xong trong timeout
+ack/nack đúng trạng thái
+close channel/connection
+exit
+```
+
+Nếu process bị kill khi đang xử lý nhưng chưa ack, RabbitMQ sẽ redeliver message. Đây là lý do idempotent consumer bắt buộc.
+
+---
+
+## 17. RabbitMQ vs Kafka Nói Ngắn Gọn
+
+| RabbitMQ | Kafka |
+|---|---|
+| Message broker/task queue | Distributed event log/stream |
+| Queue + ack từng message | Consumer offset |
+| Routing linh hoạt bằng exchange | Topic partition |
+| Retry/DLQ thường thiết kế bằng queue | Replay theo offset dễ hơn |
+| Hợp job async, workflow, command | Hợp event streaming, analytics, log, replay |
+
+Câu trả lời tốt:
+
+> Nếu tôi cần task queue với ack/retry/DLQ rõ, routing linh hoạt và worker xử lý job, RabbitMQ là lựa chọn đơn giản. Nếu tôi cần event log lưu dài hạn, replay nhiều consumer group và throughput stream lớn, Kafka hợp hơn.
+
+---
+
+## 18. Lỗi Thiết Kế Thường Gặp
+
+* Ack trước khi side effect thành công.
+* Retry bằng `nack(requeue=true)` vô hạn.
+* Không có DLQ cho poison message.
+* Không có idempotent consumer.
+* Prefetch quá cao làm worker ôm nhiều message và overload DB.
+* Nghĩ RabbitMQ đảm bảo exactly-once.
+* Không có publisher confirm cho event quan trọng.
+* Không dùng outbox khi cần nhất quán DB + publish event.
+* Không monitor unacked/backlog/DLQ.
+* Dùng một queue nhiều consumer rồi kỳ vọng ordering tuyệt đối.
+
+---
+
+## 19. Câu Trả Lời Phỏng Vấn Mẫu
+
+### RabbitMQ hoạt động thế nào?
+
+> Producer publish message vào exchange. Exchange route message vào queue dựa trên binding và routing key. Consumer đọc message từ queue và ack sau khi xử lý thành công. Với production, tôi dùng manual ack, prefetch để giới hạn unacked messages, retry có backoff, DLQ cho poison message và idempotent consumer vì RabbitMQ thường là at-least-once.
+
+### Exchange type khác nhau thế nào?
+
+> Direct match routing key chính xác, topic match pattern như `order.*`, fanout broadcast tới mọi queue bound, headers route theo headers. Với domain event tôi thường dùng topic exchange; với task cụ thể có thể dùng direct; với broadcast cache invalidation có thể dùng fanout.
+
+### Prefetch để làm gì?
+
+> Prefetch giới hạn số message unacked mà broker giao cho mỗi consumer. Nó giúp backpressure và tránh một worker ôm quá nhiều message. Prefetch thấp như 1 dễ kiểm soát ordering và downstream load hơn, prefetch cao tăng throughput nhưng có thể tăng unacked, memory và làm ordering khó hơn.
+
+### Retry và DLQ thiết kế thế nào?
+
+> Tôi tránh requeue ngay vô hạn. Với lỗi transient, consumer publish message sang retry queue có TTL như 5s, 30s, 5m rồi ack message hiện tại. Hết TTL, message dead-letter về exchange chính để xử lý lại. Retry count nằm trong header do app quản lý. Quá số lần hoặc lỗi permanent thì đưa vào DLQ để inspect/manual xử lý.
+
+### Vì sao consumer phải idempotent?
+
+> Vì consumer có thể xử lý xong nhưng crash trước khi ack, hoặc broker redeliver message. Do đó cùng event có thể đến nhiều lần. Tôi dùng event_id/dedup table hoặc unique constraint, ghi dedup record cùng transaction với side effect, duplicate thì ack và bỏ qua.
+

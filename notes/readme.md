@@ -45,7 +45,9 @@ Concept nên nắm thêm trong nhóm này:
 
 | File | Dùng để ôn |
 |---|---|
-| [Backend Communication Roadmap](backend-communication-roadmap.md) | REST/gRPC boundary, RabbitMQ, retry/backoff, circuit breaker, DLQ, idempotent consumer, outbox, API versioning, WebSocket scale |
+| [Backend Communication Roadmap](backend-communication-roadmap.md) | Roadmap tổng quan cho REST/gRPC/queue, retry/backoff, circuit breaker, outbox, API versioning, WebSocket scale |
+| [gRPC Middle Notes](grpc-middle-notes.md) | gRPC cho Middle Backend: protobuf, deadline, status code, interceptor, streaming, compatibility, observability |
+| [RabbitMQ Middle Notes](rabbitmq-middle-notes.md) | RabbitMQ đủ sâu cho Middle Backend: exchange types, prefetch, DLX/DLQ, retry, ordering, reliability, outbox |
 | [Backend Security Middle Notes](backend-security-middle.md) | Rainbow table, brute-force login, scraping/bot abuse, app-level DDoS, SQL/NoSQL injection, CORS, API key, webhook signature, file upload security |
 | [Rate Limit](rate-limit) | Concept, use case, edge case production, 5 thuật toán phổ biến và code Go: fixed window, sliding window log/counter, token bucket, leaky bucket |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
