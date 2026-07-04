@@ -172,6 +172,40 @@ Message đang unacked
 
 Vì vậy RabbitMQ là **at-least-once delivery** trong flow manual ack: message có thể được xử lý hơn một lần.
 
+### Message đang được consumer 1 xử lý thì consumer 2 có lấy được không?
+
+Không, nếu consumer 1 đã nhận message và message đang ở trạng thái **unacked**, RabbitMQ sẽ không giao cùng message đó cho consumer 2 cùng lúc.
+
+Flow:
+
+```text
+Queue có message A
+-> RabbitMQ giao A cho consumer 1
+-> A chuyển từ ready sang unacked
+-> consumer 2 không lấy được A trong lúc A vẫn unacked
+```
+
+Consumer 2 chỉ có thể nhận message khác đang `ready` trong queue.
+
+Message A chỉ được giao lại cho consumer khác khi:
+
+* consumer 1 `ack` không xảy ra và connection/channel bị đóng;
+* consumer 1 crash;
+* consumer 1 `nack/reject` với `requeue=true`;
+* broker quyết định redeliver sau một số cơ chế retry/delivery-limit tùy queue type/cấu hình.
+
+Ví dụ:
+
+```text
+consumer 1 nhận A
+consumer 1 xử lý xong DB nhưng crash trước ACK
+RabbitMQ thấy connection mất
+-> A quay lại queue/redeliver
+-> consumer 2 có thể nhận A
+```
+
+Đây là lý do consumer vẫn phải idempotent. RabbitMQ không xử lý cùng một message song song ở 2 consumer trong trạng thái bình thường, nhưng message có thể được xử lý lại sau crash/nack/redelivery.
+
 ### Ack
 
 Dùng khi xử lý thành công, hoặc khi message duplicate đã được xử lý trước đó.
@@ -407,6 +441,35 @@ Mỗi lane xử lý tuần tự hơn:
 
 RabbitMQ không thay thế business version/state machine.
 
+### Vẫn cần nhiều consumer, nhưng vẫn phải tuần tự thì sao?
+
+Câu hỏi phỏng vấn hay gặp: "dùng RabbitMQ xử lý tuần tự nhưng vẫn giữ nhiều consumer thì làm sao?" Có 2 kỹ thuật kết hợp:
+
+**1. Lane pattern (đa consumer ở tầng hệ thống)**
+
+Vẫn là routing theo `hash(order_id) % N` ở trên: toàn hệ thống có N consumer chạy song song (scale ngang bằng cách tăng N), nhưng mỗi lane chỉ có đúng 1 consumer xử lý tại một thời điểm nên thứ tự trong lane được giữ. "Nhiều consumer" ở đây là nhiều consumer *khác lane*, không phải nhiều consumer trên cùng 1 queue.
+
+**2. Single Active Consumer (SAC) — đa consumer ngay trên cùng 1 queue**
+
+RabbitMQ có tính năng built-in cho đúng case này: nhiều consumer được đăng ký trên **cùng một queue** để failover/HA, nhưng broker chỉ deliver cho **đúng 1 consumer active** tại một thời điểm. Consumer active mất kết nối, RabbitMQ tự chuyển sang consumer đứng chờ kế tiếp mà app không cần tự coordinate.
+
+```text
+queue: order-events-0
+  x-single-active-consumer = true
+
+consumer A (active)   <- đang nhận message
+consumer B (standby)  <- đăng ký sẵn, không nhận message
+consumer C (standby)  <- đăng ký sẵn, không nhận message
+
+A mất kết nối
+  -> RabbitMQ tự chuyển B thành active
+  -> thứ tự vẫn được giữ, không cần app tự quản lý ai đang xử lý
+```
+
+Kết hợp cả hai: mỗi lane queue bật SAC, một pool consumer subscribe vào tất cả lane. Hệ thống có nhiều consumer đăng ký (dễ scale/deploy, có failover), nhưng mỗi lane luôn chỉ 1 consumer xử lý tại một thời điểm.
+
+SAC/lane chỉ đảm bảo broker không phát song song trong cùng 1 lane. Crash + redelivery (message unacked quay lại) vẫn có thể tạo out-of-order thực tế ở tầng app, nên version/sequence + idempotent handler vẫn là lớp bảo vệ bắt buộc, không thể bỏ.
+
 ---
 
 ## 12. Durable, Persistent Và Reliability
@@ -592,4 +655,3 @@ Câu trả lời tốt:
 ### Vì sao consumer phải idempotent?
 
 > Vì consumer có thể xử lý xong nhưng crash trước khi ack, hoặc broker redeliver message. Do đó cùng event có thể đến nhiều lần. Tôi dùng event_id/dedup table hoặc unique constraint, ghi dedup record cùng transaction với side effect, duplicate thì ack và bỏ qua.
-
