@@ -53,6 +53,28 @@ Không nên tin "client không retry". Timeout/network lỗi luôn có thể t�
 
 Retry mà không có idempotency có thể làm lỗi nặng hơn, ví dụ charge tiền hai lần hoặc tạo hai order.
 
+Cách hiểu thực tế:
+
+* `Deduplication` là kỹ thuật phát hiện "đây là cùng một request/message/event/bản ghi đã thấy rồi" để bỏ qua hoặc trả lại kết quả cũ. Nó thường gặp nhất ở message/event consumer như RabbitMQ, Kafka, SQS, webhook event, nhưng không chỉ giới hạn ở consumer. API cũng có thể dedup bằng `Idempotency-Key`, batch job có thể dedup bằng business key, import data có thể dedup bằng unique constraint.
+* `Idempotency` là tính chất của cả một operation. Nghĩa là operation đó dù bị gọi lại, retry hoặc nhận duplicate thì side effect cuối cùng vẫn như chạy một lần. Vì vậy idempotency có thể áp dụng ở nhiều boundary: HTTP API, queue consumer, webhook handler, cron job, CLI tool, batch job hoặc offline sync.
+* Deduplication thường là một trong các cách để đạt idempotency, nhưng không phải toàn bộ idempotency. Một operation idempotent còn có thể cần request hash, response replay, state machine, transaction, unique constraint, optimistic lock hoặc idempotency key truyền sang external provider.
+
+Ví dụ:
+
+```text
+RabbitMQ consumer thấy event_id đã xử lý
+-> dedup message
+-> ack và bỏ qua
+-> giúp consumer idempotent
+```
+
+```text
+POST /orders với Idempotency-Key
+-> backend lưu key + request_hash + response
+-> retry cùng key trả lại order cũ
+-> operation tạo order trở thành idempotent
+```
+
 #### Khi nào cần idempotency?
 
 Nên có idempotency cho operation có side effect:
