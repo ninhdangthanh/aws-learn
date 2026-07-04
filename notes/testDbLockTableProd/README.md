@@ -1,0 +1,275 @@
+# Table Lock trên PostgreSQL Production
+
+Ghi chú này nhìn theo góc production PostgreSQL: thao tác nào lấy lock gì, có
+block đọc/ghi không, và cách làm an toàn hơn cho từng loại thao tác. Kèm theo
+là một lab nhỏ (`main.js` + `lock-demos/`) để tái hiện lock thật trên máy local
+thay vì chỉ đọc lý thuyết.
+
+## 1. Backup 1 table có lock không?
+
+Có, nhưng nhẹ.
+
+```bash
+pg_dump -t orders dbname > orders.sql
+```
+
+PostgreSQL lấy `ACCESS SHARE` lock trên table. Lock này:
+
+- Không block `SELECT`, `INSERT`, `UPDATE`, `DELETE`.
+- Nhưng block các lệnh cần `ACCESS EXCLUSIVE` lock, ví dụ:
+
+```sql
+ALTER TABLE orders ADD COLUMN ...;
+DROP TABLE orders;
+TRUNCATE orders;
+```
+
+Backup table thường không làm nghẽn traffic app, nhưng có thể làm
+migration/schema change phải chờ. Theo PostgreSQL docs, `ALTER TABLE` mặc
+định lấy lock mạnh nhất cần thiết cho thao tác đó, và nhiều dạng lấy
+`ACCESS EXCLUSIVE`.
+
+## 2. Thêm 1 field nullable có lock không?
+
+Có, nhưng thường rất nhanh:
+
+```sql
+ALTER TABLE users ADD COLUMN nickname text;
+```
+
+Lệnh này lấy `ACCESS EXCLUSIVE` lock — trong khoảnh khắc đó block cả
+read/write. Nhưng vì chỉ đổi metadata, không rewrite toàn bảng, nên thường
+chỉ mất vài ms nếu không bị kẹt sau một transaction đang giữ lock trên table.
+
+Điểm nguy hiểm: nếu có transaction khác đang giữ lock trên table, `ALTER
+TABLE` sẽ phải chờ, và trong lúc chờ, các query mới phía sau cũng có thể bị
+xếp hàng theo (queue) — vì PostgreSQL cấp lock theo đúng thứ tự yêu cầu.
+
+Production nên dùng:
+
+```sql
+SET lock_timeout = '2s';
+ALTER TABLE users ADD COLUMN nickname text;
+```
+
+`lock_timeout` khiến lệnh fail nhanh thay vì treo vô thời hạn và chặn cả
+hàng đợi phía sau nó.
+
+## 3. Thêm data cho field nullable rồi thêm constraint thì sao?
+
+Tùy loại constraint.
+
+### Trường hợp nguy hiểm: thêm NOT NULL trực tiếp
+
+```sql
+ALTER TABLE users ALTER COLUMN nickname SET NOT NULL;
+```
+
+PostgreSQL phải quét toàn bảng để chắc chắn không còn NULL. Với bảng lớn,
+thao tác này giữ `ACCESS EXCLUSIVE` lock trong suốt thời gian scan — có thể
+là vài giây tới vài phút.
+
+Cách an toàn hơn — tách thành 3 bước nhỏ:
+
+```sql
+-- 1. Thêm constraint nhanh, chưa validate ngay (không scan bảng)
+ALTER TABLE users
+  ADD CONSTRAINT users_nickname_not_null
+  CHECK (nickname IS NOT NULL) NOT VALID;
+
+-- 2. Validate riêng — vẫn scan bảng, nhưng chỉ lấy lock nhẹ (SHARE UPDATE EXCLUSIVE),
+--    không chặn read/write bình thường
+ALTER TABLE users VALIDATE CONSTRAINT users_nickname_not_null;
+
+-- 3. SET NOT NULL giờ chạy gần như tức thời, vì planner đã biết chắc
+--    không còn NULL nhờ constraint đã validate ở bước 2
+ALTER TABLE users ALTER COLUMN nickname SET NOT NULL;
+```
+
+### Trường hợp unique
+
+Không nên làm thẳng trên bảng lớn:
+
+```sql
+ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
+```
+
+Nên tách ra dùng `CONCURRENTLY`:
+
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY idx_users_email_unique ON users(email);
+
+ALTER TABLE users
+  ADD CONSTRAINT users_email_unique
+  UNIQUE USING INDEX idx_users_email_unique;
+```
+
+## 4. Copy 1 table có lock không?
+
+Có nhiều cách tùy mục đích.
+
+**Copy schema + data** (đọc toàn bảng gốc, lock nhẹ `ACCESS SHARE`, nhưng tốn
+I/O/CPU/WAL):
+
+```sql
+CREATE TABLE users_backup AS SELECT * FROM users;
+```
+
+**Copy chỉ schema** (nhanh hơn nhiều vì không copy data):
+
+```sql
+CREATE TABLE users_backup AS SELECT * FROM users WHERE false;
+-- hoặc
+CREATE TABLE users_backup (LIKE users INCLUDING ALL);
+```
+
+## 5. Thêm index có lock không?
+
+Có.
+
+**`CREATE INDEX` thường** — lấy `SHARE` lock, vẫn cho `SELECT` chạy nhưng
+**block `INSERT`/`UPDATE`/`DELETE`** trong suốt thời gian build index. Với
+bảng lớn trên production: rủi ro cao.
+
+```sql
+CREATE INDEX idx_users_email ON users(email);
+```
+
+**`CREATE INDEX CONCURRENTLY`** — lấy `SHARE UPDATE EXCLUSIVE` lock, không
+chặn read/write bình thường, nên production luôn ưu tiên cách này:
+
+```sql
+CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+```
+
+Lưu ý:
+
+- Không chạy được trong transaction block (`BEGIN ... COMMIT`) — sẽ lỗi.
+- Chạy lâu hơn và tốn tài nguyên hơn bản thường.
+- Nếu fail giữa chừng, có thể để lại index ở trạng thái `INVALID`, cần
+  `DROP INDEX` rồi tạo lại.
+
+Nên luôn set timeout khi chạy DDL trên production:
+
+```sql
+SET lock_timeout = '2s';
+SET statement_timeout = '30min';
+
+CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+```
+
+## 6. Bảng tổng hợp rủi ro lock theo thao tác
+
+| Thao tác | Lock risk | Vì sao |
+|---|---|---|
+| `pg_dump -t table` | Thấp | Chỉ `ACCESS SHARE` |
+| `ADD COLUMN` nullable, không default | Thấp, `ACCESS EXCLUSIVE` rất ngắn | Chỉ đổi metadata |
+| `ADD COLUMN` nullable với constant default | Thường ổn ở PostgreSQL bản mới | Không rewrite bảng |
+| `ADD COLUMN ... NOT NULL DEFAULT ...` | Cần cẩn thận | Có thể rewrite/scan tùy version/case |
+| `ALTER COLUMN ... TYPE` | Cao | Thường phải rewrite toàn bảng |
+| `SET NOT NULL` trực tiếp trên bảng lớn | Cao | Phải scan toàn bảng để đảm bảo không còn NULL |
+| `ADD CHECK ... NOT VALID` | Thấp | Không scan ngay |
+| `VALIDATE CONSTRAINT` | Trung bình | Có scan bảng, nhưng lock nhẹ hơn |
+| `ADD UNIQUE`/`PRIMARY KEY` trực tiếp | Cao | Phải build index, có thể block write |
+| `CREATE INDEX` | Cao | Block `INSERT`/`UPDATE`/`DELETE` |
+| `CREATE INDEX CONCURRENTLY` | Thấp | Không chặn read/write bình thường |
+| `CREATE TABLE AS SELECT` | Thấp về lock, nặng I/O | Chỉ đọc, nhưng tốn tài nguyên |
+| `DROP COLUMN` | Cao (nhưng nhanh) | Lock mạnh dù chỉ đổi metadata |
+| `DROP TABLE` / `TRUNCATE` | Cao | `ACCESS EXCLUSIVE`, phá cả dependency |
+| `VACUUM FULL` / `CLUSTER` | Rất cao | Rewrite toàn bảng |
+| `REINDEX` thường | Cao | Có thể block read/write |
+| `REFRESH MATERIALIZED VIEW` không `CONCURRENTLY` | Cao | Block đọc view |
+| `UPDATE`/`DELETE` số lượng lớn | Trung bình–cao | Giữ row lock lâu, tạo bloat, tốn WAL/I/O |
+| `ADD FOREIGN KEY` trực tiếp | Trung bình–cao | Cần validate dữ liệu, có thể scan bảng |
+| `RENAME COLUMN`/`TABLE` | Thấp | Nhanh, lock mạnh nhưng rất ngắn |
+
+**Rule dễ nhớ:**
+
+- Đọc/copy/backup thường lock nhẹ nhưng tốn tài nguyên (I/O, CPU, WAL).
+- DDL thường lock mạnh (`ACCESS EXCLUSIVE`) dù chạy nhanh về mặt metadata.
+- Scan/rewrite bảng lớn là nguy hiểm nhất — luôn hỏi "thao tác này có phải
+  quét/viết lại toàn bảng không?" trước khi chạy trên production.
+- Index trên production luôn dùng `CONCURRENTLY`.
+- Constraint trên production luôn theo pattern `NOT VALID` rồi
+  `VALIDATE CONSTRAINT`.
+- Luôn set `lock_timeout` khi chạy DDL, để lệnh fail nhanh và rõ ràng thay vì
+  treo và chặn cả hàng đợi phía sau.
+
+## 7. Lab: tái hiện lock table thật trên local
+
+Phần trên là lý thuyết — phần này là một bảng ~2 triệu dòng chạy trong
+Docker, để bạn tự tay chạy các thao tác nguy hiểm ở trên và **thấy lock xảy
+ra thật**, thay vì chỉ tin vào bảng risk ở trên.
+
+### Cấu trúc lab
+
+```
+docker-compose.yml   # PostgreSQL 16, bật log_lock_waits
+main.js              # seed bảng lock_test_orders với ~2 triệu row (faker)
+lock-demos/
+  db.js                          # config kết nối dùng chung
+  long-transaction.js            # "session A": giữ transaction mở lâu
+  create-index.js                # CREATE INDEX thường (blocking)
+  create-index-concurrently.js   # CREATE INDEX CONCURRENTLY (không block)
+  add-column-not-null-default.js # ALTER TABLE ADD COLUMN NOT NULL DEFAULT
+  watch-locks.js                 # theo dõi ai đang block ai theo thời gian thực
+```
+
+### Chạy lab
+
+```bash
+docker-compose up -d   # khởi động Postgres ở localhost:5432 (user/pass/db: app/app/lock_lab)
+npm install
+npm run seed           # tạo bảng lock_test_orders + insert 2,000,000 rows (~18s)
+```
+
+### Tái hiện lock: `CREATE INDEX` bị chặn bởi 1 transaction đang mở
+
+Mở 2 terminal.
+
+Terminal 1 — mô phỏng một transaction "quên" COMMIT (giống 1 request chậm
+trên production):
+
+```bash
+npm run lock:long-transaction   # giữ transaction mở 30s (đổi bằng HOLD_SECONDS=...)
+```
+
+Terminal 2 — trong lúc terminal 1 còn đang chạy:
+
+```bash
+npm run lock:create-index
+```
+
+Bạn sẽ thấy `create-index` đứng im, chờ đúng tới khi terminal 1 `COMMIT` thì
+mới chạy tiếp — đây chính là `SHARE` lock của `CREATE INDEX` xếp hàng phía
+sau `ROW EXCLUSIVE` lock mà transaction ở terminal 1 đang giữ.
+
+Chạy lại y hệt kịch bản trên nhưng thay `lock:create-index` bằng
+`lock:create-index-concurrently` để thấy sự khác biệt: nó vẫn phải **chờ**
+transaction cũ kết thúc (để đảm bảo snapshot nhất quán), nhưng trong lúc chờ,
+**write bình thường từ session khác không hề bị chặn** — khác hẳn với bản
+`CREATE INDEX` thường, vốn chặn cả `INSERT`/`UPDATE`/`DELETE` của mọi
+session khác.
+
+Cũng có thể thử `npm run lock:add-column` để thấy `ALTER TABLE ... ADD
+COLUMN ... NOT NULL DEFAULT ...` xếp hàng chờ tương tự — vì nó cần
+`ACCESS EXCLUSIVE`, lock mạnh nhất, xung đột với mọi lock khác kể cả
+`ACCESS SHARE`.
+
+### Quan sát blocking chain theo thời gian thực
+
+Mở thêm 1 terminal, chạy song song với 2 terminal trên:
+
+```bash
+npm run lock:watch
+```
+
+Script này poll `pg_locks` + `pg_stat_activity` mỗi giây và in ra PID nào
+đang bị PID nào chặn, cùng câu query tương ứng — đúng những gì bạn sẽ dùng
+để debug incident lock thật trên production.
+
+### Dọn dẹp
+
+```bash
+docker-compose down -v   # xoá container + volume, làm sạch hoàn toàn
+```

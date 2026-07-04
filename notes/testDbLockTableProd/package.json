@@ -1,0 +1,19 @@
+{
+  "name": "test-db-lock-table-prod",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lab tái hiện các loại lock table PostgreSQL thường gặp trên production.",
+  "type": "commonjs",
+  "scripts": {
+    "seed": "node main.js",
+    "lock:add-column": "node lock-demos/add-column-not-null-default.js",
+    "lock:create-index": "node lock-demos/create-index.js",
+    "lock:create-index-concurrently": "node lock-demos/create-index-concurrently.js",
+    "lock:long-transaction": "node lock-demos/long-transaction.js",
+    "lock:watch": "node lock-demos/watch-locks.js"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^8.4.1",
+    "pg": "^8.13.1"
+  }
+}

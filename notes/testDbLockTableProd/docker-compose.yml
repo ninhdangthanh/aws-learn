@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: lock_lab
+    ports:
+      - "5432:5432"
+    command: ["postgres", "-c", "log_lock_waits=on", "-c", "deadlock_timeout=1s"]
+    volumes:
+      - lock_lab_data:/var/lib/postgresql/data
+
+volumes:
+  lock_lab_data:
