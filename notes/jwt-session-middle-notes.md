@@ -312,6 +312,17 @@ Use case:
 * show active devices;
 * detect suspicious login.
 
+Trade-off:
+
+| Lựa chọn | Ưu điểm | Rủi ro/chi phí |
+|---|---|---|
+| Lưu session trong DB | Audit tốt, query lịch sử/device rõ, source of truth bền | Mỗi request lookup DB sẽ nặng nếu không cache |
+| Cache session active trong Redis | Check nhanh, TTL tự hết hạn | Redis mất/evict key có thể logout nhầm hoặc tạo rủi ro nếu fail open |
+| JWT chứa `session_id` | Revoke được từng device/session | Cần lookup session state nếu muốn revoke tức thì |
+| Chỉ dùng `token_version` | Logout all devices đơn giản | Không revoke riêng một device/token cụ thể |
+
+Pattern thực tế thường là DB làm source of truth cho sessions, Redis cache session/token version cho auth path nhanh hơn.
+
 ---
 
 ## 8. Blacklist vs Whitelist Session
@@ -338,10 +349,19 @@ Hợp khi:
 
 Trade-off:
 
-```text
-Blacklist: nhẹ hơn, nhưng revoke phụ thuộc blacklist key còn tồn tại.
-Whitelist: kiểm soát chặt hơn, nhưng mỗi request phụ thuộc DB/Redis.
-```
+| Cách | Ưu điểm | Rủi ro/chi phí |
+|---|---|---|
+| Blacklist | Nhẹ hơn, giữ phần lớn lợi ích stateless của JWT | Revoke phụ thuộc blacklist key còn tồn tại; Redis eviction/down cần policy rõ |
+| Whitelist/session lookup | Kiểm soát chặt, revoke tức thì, quản lý device tốt | Mỗi request phụ thuộc DB/Redis; tăng latency và dependency auth path |
+| TTL access token ngắn | Giảm nhu cầu blacklist nhiều token | User/client phải refresh thường xuyên hơn |
+| Kết hợp blacklist + token version + session | Linh hoạt cho revoke từng token, từng device, hoặc toàn user | Phức tạp hơn, cần design cache/DB consistency và observability |
+
+Cách chọn nhanh:
+
+* API bình thường, token TTL ngắn, revoke ít: blacklist theo `jti` là đủ.
+* App cần quản lý thiết bị/logout từng device: session lookup hoặc `session_id` trong JWT.
+* Đổi mật khẩu/logout all devices: `token_version`.
+* Hệ thống security cao: whitelist/session lookup, chấp nhận thêm dependency.
 
 ---
 
@@ -445,4 +465,3 @@ Nếu key leak:
 ### Dùng blacklist hay token version?
 
 > Nếu cần revoke một token cụ thể như logout current session, dùng `jti` blacklist hoặc session revoke. Nếu cần revoke toàn bộ token của user như đổi password/logout all, dùng `token_version`. Thực tế thường kết hợp access token ngắn hạn, refresh token rotation, blacklist/session cho revoke cụ thể và token version cho revoke hàng loạt.
-

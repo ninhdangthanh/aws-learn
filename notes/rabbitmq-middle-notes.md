@@ -349,7 +349,80 @@ RabbitMQ không tự tăng `retry_count` cho app. App phải đọc header, tăn
 
 ---
 
-## 9. Poison Message
+## 9. Delay / Scheduled Message
+
+Section 8 dùng TTL + DLX để *retry*. Cùng cơ chế đó có thể dùng chủ động để **delay/schedule** một message: publish ngay bây giờ nhưng muốn consumer chỉ xử lý sau X thời gian.
+
+Use case:
+
+* hủy order chưa thanh toán sau 15 phút;
+* gửi nhắc nhở sau 30 phút;
+* retry webhook sau 1 giờ;
+* cron-like task nhẹ không muốn dựng scheduler riêng.
+
+Câu hỏi cốt lõi: delay nên đặt ở **header của message** hay **config của queue**? Phụ thuộc broker có plugin gì và delay cố định hay linh hoạt.
+
+### Cách 1: Plugin x-delayed-message (delay theo từng message)
+
+Nếu broker cài `rabbitmq_delayed_message_exchange`, tạo exchange type `x-delayed-message`, delay nằm ở header `x-delay` của **từng message**.
+
+```text
+exchange: delay-exchange
+  type: x-delayed-message
+  arguments: x-delayed-type = direct
+
+publish message
+  headers: x-delay = 30000   # 30s
+  -> broker giữ message 30s rồi mới route như direct exchange
+```
+
+* Ưu: mỗi message một mức delay khác nhau, không cần tạo nhiều queue.
+* Nhược: cần cài plugin (không phải managed broker nào cũng cho), message đang delay giữ trong broker nên delay rất dài + volume lớn thì tốn tài nguyên broker.
+
+### Cách 2: TTL trên queue + DLX (delay cố định, không cần plugin)
+
+Cách chuẩn RabbitMQ khi không có plugin. Tạo một "delay queue" có TTL cố định, **không có consumer**; hết TTL message dead-letter sang exchange/queue chính.
+
+```text
+producer
+  -> delay_queue
+       x-message-ttl = 30000        (không consumer)
+       x-dead-letter-exchange = main_exchange
+       x-dead-letter-routing-key = main
+  -> sau 30s (TTL hết)
+       main_exchange -> main_queue -> consumer
+```
+
+Ở đây delay là thuộc tính của **queue**: mọi message vào queue này đều trễ đúng 30s.
+
+### Cách 3: TTL trên từng message + DLX
+
+RabbitMQ cho set TTL riêng mỗi message qua field `expiration` (queue vẫn phải có `x-dead-letter-exchange`).
+
+```text
+publish -> delay_queue (có x-dead-letter-exchange)
+  message.expiration = "30000"
+```
+
+Cảnh báo quan trọng (**head-of-line blocking**): TTL per-message chỉ được đánh giá khi message tới **đầu queue**. Nếu một message TTL ngắn nằm *sau* một message TTL dài, nó vẫn phải đợi message trước hết hạn/được xử lý mới thoát ra — delay bị trễ hơn mong đợi. Vì vậy per-message TTL + DLX chỉ hợp khi các delay xấp xỉ nhau; delay chênh lệch nhiều thì dùng nhiều delay queue cố định hoặc plugin.
+
+### Chọn header hay queue?
+
+| Nhu cầu | Cách |
+|---|---|
+| Delay cố định, mọi message trễ như nhau | TTL trên **queue** (`x-message-ttl`) + DLX |
+| Vài mức delay cố định (30s, 5m, 1h) | Mỗi mức một delay queue riêng |
+| Delay khác nhau mỗi message | Plugin `x-delayed-message` (ưu tiên) hoặc per-message `expiration` + DLX (lưu ý head-of-line) |
+
+Tóm tắt thực tế:
+
+* Không có plugin: TTL + DLX là lựa chọn ổn định, đúng chuẩn RabbitMQ — cùng cơ chế retry queue ở Section 8, chỉ khác mục đích.
+* Có plugin: `x-delayed-message` linh hoạt hơn cho nhiều mức delay tùy message.
+* Dù cách nào, sau khi hết delay message vẫn đi qua consumer bình thường, nên ack/retry/idempotency ở các section trên vẫn áp dụng nguyên vẹn.
+
+---
+
+## 10. Poison Message
 
 Poison message là message sẽ luôn fail nếu retry lại.
 
@@ -370,7 +443,7 @@ Không nên retry poison message vô hạn. Nên:
 
 ---
 
-## 10. Idempotent Consumer
+## 11. Idempotent Consumer
 
 Vì RabbitMQ at-least-once, consumer phải idempotent.
 
@@ -409,7 +482,7 @@ Xem lab thực hành: [Idempotency Lab](idempotency/README.md).
 
 ---
 
-## 11. Ordering
+## 12. Ordering
 
 RabbitMQ giữ thứ tự trong một queue theo điều kiện lý tưởng, nhưng production dễ phá ordering:
 
@@ -472,7 +545,7 @@ SAC/lane chỉ đảm bảo broker không phát song song trong cùng 1 lane. Cr
 
 ---
 
-## 12. Durable, Persistent Và Reliability
+## 13. Durable, Persistent Và Reliability
 
 Các khái niệm dễ nhầm:
 
@@ -498,7 +571,7 @@ Checklist cho message quan trọng:
 
 ---
 
-## 13. Publisher Confirm
+## 14. Publisher Confirm
 
 Publisher confirm giúp producer biết RabbitMQ đã nhận message.
 
@@ -522,7 +595,7 @@ Nhưng retry publish có thể tạo duplicate, nên message vẫn cần `event_
 
 ---
 
-## 14. Outbox Pattern
+## 15. Outbox Pattern
 
 Vấn đề:
 
@@ -562,7 +635,7 @@ Nhưng nó giảm rủi ro mất event giữa DB và broker.
 
 ---
 
-## 15. Consumer Concurrency
+## 16. Consumer Concurrency
 
 Các cách scale consumer:
 
@@ -587,7 +660,7 @@ Metrics cần nhìn:
 
 ---
 
-## 16. Graceful Shutdown Consumer
+## 17. Graceful Shutdown Consumer
 
 Khi deploy/restart worker:
 
@@ -603,7 +676,7 @@ Nếu process bị kill khi đang xử lý nhưng chưa ack, RabbitMQ sẽ redel
 
 ---
 
-## 17. RabbitMQ vs Kafka Nói Ngắn Gọn
+## 18. RabbitMQ vs Kafka Nói Ngắn Gọn
 
 | RabbitMQ | Kafka |
 |---|---|
@@ -619,7 +692,7 @@ Câu trả lời tốt:
 
 ---
 
-## 18. Lỗi Thiết Kế Thường Gặp
+## 19. Lỗi Thiết Kế Thường Gặp
 
 * Ack trước khi side effect thành công.
 * Retry bằng `nack(requeue=true)` vô hạn.
@@ -634,7 +707,7 @@ Câu trả lời tốt:
 
 ---
 
-## 19. Câu Trả Lời Phỏng Vấn Mẫu
+## 20. Câu Trả Lời Phỏng Vấn Mẫu
 
 ### RabbitMQ hoạt động thế nào?
 

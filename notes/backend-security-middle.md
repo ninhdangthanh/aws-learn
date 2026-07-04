@@ -225,9 +225,72 @@ Ví dụ:
 * Reject sớm request thiếu auth hoặc invalid input.
 * Alert theo p95 latency, 4xx/5xx, request rate, queue depth, DB CPU.
 
+### Fingerprinting trong DDoS protection là gì?
+
+Fingerprinting là cách hệ thống tạo một "dấu vân tay" cho client/request bằng cách kết hợp nhiều tín hiệu. Mục tiêu là nhận ra traffic có cùng nguồn hoặc cùng automation pattern, kể cả khi attacker đổi IP hoặc tạo nhiều account.
+
+Fingerprint không phải định danh tuyệt đối của một người dùng. Nó là tín hiệu rủi ro để rate limit, challenge hoặc block mềm.
+
+Tín hiệu thường dùng:
+
+```text
+IP / subnet / ASN
+User-Agent
+Accept-Language
+TLS fingerprint
+HTTP header order
+Cookie/session/device id
+Account id / API key / tenant id
+Request path/query pattern
+Request rate / timing pattern
+Failed login / cache miss / expensive endpoint pattern
+```
+
+Ví dụ:
+
+```text
+1000 IP khác nhau
+nhưng cùng User-Agent lạ
+cùng header order
+cùng gọi /search?q=... với interval đều 200ms
+cùng không giữ cookie
+
+=> có thể gom thành một fingerprint/pattern
+=> rate limit, challenge CAPTCHA hoặc block ở edge/gateway
+```
+
+### Fingerprinting config ở level nào?
+
+| Level | Config được gì? | Hợp để làm gì? |
+|---|---|---|
+| CDN/WAF | IP reputation, ASN, country, bot score, TLS/header fingerprint, challenge/block rule | Chặn sớm trước khi vào backend |
+| Load balancer/API Gateway | rate limit theo IP/API key/JWT claim, header/cookie/path rule, body size, timeout | Bảo vệ service theo route/API |
+| Backend middleware | user_id, tenant_id, session_id, device_id, endpoint cost, behavior pattern | Rule có business context |
+| Auth/session layer | trusted device, session fingerprint, new-device alert, step-up auth | Login, OTP, payment, đổi mật khẩu |
+| Worker/queue layer | consumer concurrency, prefetch, job dedup, DLQ, downstream rate limit | Chống overload side effect/downstream |
+
+Ví dụ key rate limit ở backend:
+
+```text
+ddos:ip:{ip}
+ddos:subnet:{ip_prefix}
+ddos:fingerprint:{hash(user_agent + header_order + accept_language)}
+ddos:user:{user_id}:endpoint:{endpoint}
+ddos:tenant:{tenant_id}:export
+login:{account}:{ip_subnet}:{device_fingerprint}
+```
+
+Điểm cần cẩn thận:
+
+* Không chỉ dựa vào IP vì attacker có thể dùng proxy/VPN/botnet.
+* Không coi fingerprint là danh tính tuyệt đối vì có false positive.
+* Không log dữ liệu fingerprint nhạy cảm ở dạng raw nếu không cần; nên hash/sanitize.
+* Rule ở WAF/CDN giúp chặn sớm, nhưng backend vẫn cần business-context rate limit.
+* Block cứng dễ ảnh hưởng user thật ở NAT/mobile network; nên có challenge, giảm quota hoặc step-up verification.
+
 Câu trả lời phỏng vấn:
 
-> DDoS lớn cần WAF/CDN, nhưng backend vẫn phải tự bảo vệ khỏi app-level DDoS. Tôi đặt timeout, body limit, rate limit theo endpoint, concurrency limit cho API nặng và dùng queue/backpressure cho tác vụ tốn tài nguyên. Mục tiêu là fail fast thay vì để request xấu giữ worker, connection pool hoặc DB quá lâu.
+> DDoS lớn cần WAF/CDN, nhưng backend vẫn phải tự bảo vệ khỏi app-level DDoS. Tôi đặt timeout, body limit, rate limit theo endpoint, concurrency limit cho API nặng và dùng queue/backpressure cho tác vụ tốn tài nguyên. Với fingerprinting, tôi kết hợp IP/subnet, user-agent/header pattern, cookie/session, user/API key và behavior để phát hiện traffic automation thay vì chỉ limit theo IP. Mục tiêu là fail fast hoặc challenge sớm thay vì để request xấu giữ worker, connection pool hoặc DB quá lâu.
 
 ---
 
