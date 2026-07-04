@@ -29,13 +29,14 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 | File | Dùng để ôn |
 |---|---|
 | [Database Middle Roadmap](database-middle-roadmap.md) | PostgreSQL/index/query plan/transaction/MVCC/partition/replication/connection pool/cache/migration |
+| [Redis Middle Notes](redis-middle-notes.md) | Redis use cases, data types, JWT blacklist, sorted-set scheduler, cache invalidation, edge cases và cache strategies |
 | [MongoDB F&B Notes](mongo_fnb.md) | Document model, embed/reference, hot document, aggregation, index, sharding, transaction, TTL, change stream |
 | [Production Backend Concepts](production-backend-concepts.md) | Các tình huống production dễ bị hỏi: pagination, idempotency, cache stampede, retry storm, online migration, read replica stale |
 
 Concept nên nắm thêm trong nhóm này:
 
 * PostgreSQL: `EXPLAIN ANALYZE`, composite index, row/table lock, `SELECT ... FOR UPDATE`, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
-* Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, distributed lock và fencing token.
+* Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, JWT blacklist, sorted-set scheduler, Redis Streams, distributed lock và fencing token.
 * MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
 
 ---

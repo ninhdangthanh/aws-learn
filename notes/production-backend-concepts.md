@@ -404,6 +404,8 @@ Pattern:
 
 ## 3. Cache, Redis và distributed coordination
 
+Chi tiết sâu hơn nằm ở [Redis Middle Notes](redis-middle-notes.md): use case, data type, sorted-set scheduler/reminder, JWT blacklist, edge cases và cache strategies.
+
 ### Cache không chỉ là "add Redis"
 
 Bug phổ biến:
