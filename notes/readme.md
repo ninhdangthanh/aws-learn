@@ -52,12 +52,14 @@ Concept nên nắm thêm trong nhóm này:
 | [JWT And Session Middle Notes](jwt-session-middle-notes.md) | JWT/session production: blacklist, token versioning, refresh token rotation, revoke, multi-device sessions |
 | [Rate Limit](rate-limit) | Concept, use case, edge case production, 5 thuật toán phổ biến và code Go: fixed window, sliding window log/counter, token bucket, leaky bucket |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
+| [Event-Driven Architecture Notes](event-driven-architecture.md) | EDA chuyên sâu: event vs command, event notification/state transfer/sourcing, CQRS, choreography vs orchestration, delivery guarantee, ordering, idempotent consumer, outbox, schema evolution, chọn broker, failure mode |
 
 Concept nên nắm thêm trong nhóm này:
 
 * RabbitMQ: exchange, routing key, queue binding, ack/nack, prefetch, retry, DLQ, poison message, at-least-once delivery, idempotent consumer.
 * gRPC: protobuf field compatibility, unary/server-stream/client-stream/bidi-stream, deadline, status code, interceptor, REST vs gRPC trade-off.
 * API production: rate limit nhiều dimension, idempotency key, request timeout, circuit breaker, graceful shutdown, API/backend versioning, backward compatibility.
+* EDA: event vs command, at-least-once + idempotent consumer, ordering theo partition key, dual-write và transactional outbox, schema evolution, choreography vs orchestration, poison message/DLQ, correlation id để trace luồng phân tán.
 * JWT/session: access token ngắn hạn, refresh token rotation, `jti` blacklist, token versioning, logout current/all devices, session audit.
 * Backend security: password hashing với salt, chống brute-force theo nhiều dimension, anti-scraping, CORS đúng vai trò, SQL/NoSQL injection, webhook signature, upload file an toàn.
 * Rate limit: chọn thuật toán theo mục tiêu, ví dụ token bucket cho burst/API gateway, sliding window log cho login, sliding window counter cho public API, leaky bucket cho downstream/worker protection.
