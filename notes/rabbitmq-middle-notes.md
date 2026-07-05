@@ -543,6 +543,36 @@ Kết hợp cả hai: mỗi lane queue bật SAC, một pool consumer subscribe 
 
 SAC/lane chỉ đảm bảo broker không phát song song trong cùng 1 lane. Crash + redelivery (message unacked quay lại) vẫn có thể tạo out-of-order thực tế ở tầng app, nên version/sequence + idempotent handler vẫn là lớp bảo vệ bắt buộc, không thể bỏ.
 
+### Xác nhận idea "1 consumer + prefetch=1" và các cách mở rộng
+
+Câu hỏi hay gặp: *"Để xử lý tuần tự trên RabbitMQ, mình chỉ cần queue đó dùng đúng 1 consumer với prefetch=1 phải không? Có cách khác không?"*
+
+**Xác nhận: đúng.** Một consumer duy nhất trên queue, prefetch=1, xử lý xong message này mới nhận message kế tiếp — đây là cách **đơn giản và chắc chắn nhất** để đảm bảo tuần tự. Đổi lại throughput thấp vì không có song song.
+
+Các cách mở rộng để có nhiều consumer song song mà vẫn giữ tuần tự **trong từng nhóm**:
+
+**1. Consistent hashing (gán khóa để route cùng key về cùng nơi)**
+
+Lấy một field ID liên quan (ví dụ `order_id`), băm ra giá trị, dựa trên giá trị băm để route message về đúng một queue/consumer cụ thể. Cùng khóa → luôn về cùng một luồng → xử lý đúng thứ tự. Nhờ vậy scale được nhiều consumer song song nhưng mọi message cùng khóa vẫn đi chung một lane.
+
+* Tự làm: `hash(order_id) % N -> lane queue` (đã mô tả ở phần lane pattern trên), app tự tính hash rồi chọn routing key/queue.
+* Dùng plugin: `rabbitmq-consistent-hash-exchange` cho phép tạo exchange kiểu consistent hash, broker tự phân phối routing key vào các queue đã bind mà không cần app tự tính modulo. Thêm/bớt queue ít bị reshuffle hơn so với `% N` thủ công.
+
+**2. Message grouping**
+
+Ý tưởng: broker đảm bảo các message cùng một nhóm được xử lý tuần tự. **Lưu ý: RabbitMQ không có sẵn tính năng này** (khác một số broker như ActiveMQ). Muốn có thì tự dựng logic:
+
+* Cấu hình một exchange (direct hoặc topic).
+* Dựa trên khóa nhóm (ví dụ `order_id`), tạo nhiều queue, mỗi queue ứng với một nhóm ID.
+* Khi publish, route message về đúng queue theo khóa đó (qua routing key hoặc header).
+* Mỗi queue lại xử lý tuần tự (1 consumer active / prefetch=1).
+
+Cấu hình exchange/queue vẫn bình thường; điểm mấu chốt là **logic định tuyến theo khóa nhóm** do bạn đảm bảo.
+
+**Nguyên tắc chung**
+
+Cả hai cách mở rộng đều **bắt nguồn từ đúng ý tưởng ban đầu**: đảm bảo một nhóm message liên quan được xử lý tuần tự bởi một consumer tại một thời điểm. `1 consumer + prefetch=1` là bản đơn giản nhất (một nhóm = cả queue). Consistent hashing và message grouping chỉ là cách chia nhỏ thành nhiều nhóm để chạy song song, nhưng bên trong mỗi nhóm vẫn quy về "một consumer xử lý tuần tự". Mục tiêu cuối cùng không đổi: message cùng nhóm đi theo đúng thứ tự.
+
 ---
 
 ## 13. Durable, Persistent Và Reliability
