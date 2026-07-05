@@ -177,10 +177,11 @@ cmd/
 
 Publish thẳng vào queue qua default exchange (routing key = tên queue).
 Queue retry tự dead-letter về lại `order-events` khi hết TTL nhờ
-`x-dead-letter-exchange=""` + `x-dead-letter-routing-key=order-events`:
+`x-dead-letter-exchange=""` + `x-dead-letter-routing-key=order-events`, và
+`order-events` tự dead-letter sang `order-events.dlq` khi consumer `nack`:
 
 ```text
-order-events              queue chính
+order-events              queue chính, DLX -> order-events.dlq (cho nack)
 order-events.retry.10s    x-message-ttl=10000  -> dead-letter về order-events
 order-events.retry.30s    x-message-ttl=30000  -> dead-letter về order-events
 order-events.dlq          queue chứa message hết lượt retry
@@ -191,8 +192,18 @@ Logic escalate ở consumer (`retry_count` nằm trong header, do app tự tăng
 ```text
 retry_count=0 -> publish order-events.retry.10s (đợi 10s)
 retry_count=1 -> publish order-events.retry.30s (đợi 30s)
-retry_count=2 -> hết lượt retry -> publish order-events.dlq
+retry_count=2 -> hết lượt retry -> nack(requeue=false) -> DLX đẩy về order-events.dlq
 ```
+
+Hai chặng dùng hai cơ chế khác nhau có chủ đích:
+
+- **Chặng retry** (`.retry.10s`/`.retry.30s`): **publish tay** vì đích thay đổi
+  theo `retry_count`. `nack` chỉ đẩy được về một DLX cố định nên không route
+  động nhiều tầng được.
+- **Chặng cuối vào DLQ**: **`nack(requeue=false)`**, để RabbitMQ tự dead-letter
+  về `order-events.dlq` qua DLX của main queue. Atomic (không có khe hở
+  publish-rồi-ack có thể nhân đôi message), và broker tự ghi `x-death`
+  (reason=`rejected`, count, queue gốc) — đúng thứ bước manual check cần.
 
 ### Chạy lab
 
@@ -216,11 +227,12 @@ go run ./cmd/producer
 Theo dõi terminal 1: message được nhận, publish sang `retry.10s`; đợi 10s,
 RabbitMQ tự dead-letter về `order-events`, consumer nhận lại
 (`retry_count=1`), publish sang `retry.30s`; đợi 30s, quay lại lần nữa
-(`retry_count=2`), hết lượt retry → publish sang `order-events.dlq`.
+(`retry_count=2`), hết lượt retry → `nack(requeue=false)`, RabbitMQ tự
+dead-letter về `order-events.dlq`.
 
-Terminal 2 sẽ in ra message cuối cùng kèm headers (`retry_count=3`,
-`event_id`, `event_type`) — đúng bước "manual check" mô phỏng người vận
-hành soi DLQ.
+Terminal 2 sẽ in ra message cuối cùng kèm headers (`retry_count=2`,
+`event_id`, `event_type`, và `x-death` do broker tự ghi) — đúng bước
+"manual check" mô phỏng người vận hành soi DLQ.
 
 ### Dọn dẹp
 

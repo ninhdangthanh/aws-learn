@@ -4,7 +4,8 @@
 //
 //	retry_count=0 -> publish order-events.retry.10s (đợi 10s)
 //	retry_count=1 -> publish order-events.retry.30s (đợi 30s)
-//	retry_count=2 -> hết lượt retry -> publish order-events.dlq
+//	retry_count=2 -> hết lượt retry -> nack(requeue=false), RabbitMQ tự
+//	                 dead-letter về order-events.dlq qua DLX của main queue
 //
 // Message dead-letter tự quay lại order-events sau khi TTL hết, nhờ cấu
 // hình x-dead-letter-exchange/x-dead-letter-routing-key ở internal/mq.
@@ -65,6 +66,20 @@ func main() {
 
 		nextQueue, isDLQ := mq.NextQueueForRetry(retryCount)
 
+		// Hết lượt retry: nack(requeue=false) để RabbitMQ tự dead-letter về DLQ
+		// qua DLX của main queue. Atomic (không có khe hở publish-rồi-ack) và
+		// x-death được broker tự ghi cho bước manual check.
+		if isDLQ {
+			log.Printf("  -> hết lượt retry (retry_count=%d) => nack, dead-letter về %q để manual check", retryCount, mq.QueueDLQ)
+			if err := d.Nack(false, false); err != nil {
+				log.Printf("  nack thất bại: %v", err)
+			}
+			continue
+		}
+
+		// Còn lượt retry: publish sang retry queue có delay rồi ACK message cũ.
+		// Chặng này phải publish tay vì đích thay đổi theo retry_count (nack chỉ
+		// đẩy được về một DLX cố định, không route động được).
 		headers := amqp.Table{
 			mq.HeaderEventID:    eventID,
 			mq.HeaderEventType:  d.Headers[mq.HeaderEventType],
@@ -77,11 +92,7 @@ func main() {
 			continue
 		}
 
-		if isDLQ {
-			log.Printf("  -> hết lượt retry (retry_count=%d) => publish vào %q để manual check", retryCount, nextQueue)
-		} else {
-			log.Printf("  -> publish vào %q (retry_count=%d)", nextQueue, retryCount+1)
-		}
+		log.Printf("  -> publish vào %q (retry_count=%d)", nextQueue, retryCount+1)
 
 		if err := d.Ack(false); err != nil {
 			log.Printf("  ack thất bại: %v", err)

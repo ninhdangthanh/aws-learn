@@ -31,7 +31,14 @@ func NextQueueForRetry(retryCount int) (queue string, isDLQ bool) {
 }
 
 func declareTopology(ch *amqp.Channel) error {
-	if _, err := ch.QueueDeclare(QueueMain, true, false, false, false, nil); err != nil {
+	// Main queue có DLX trỏ về DLQ: khi consumer nack(requeue=false) một
+	// message (hết lượt retry), RabbitMQ tự dead-letter nó sang order-events.dlq
+	// và tự ghi x-death (reason=rejected, count, queue gốc) — atomic, không cần
+	// consumer publish tay.
+	if _, err := ch.QueueDeclare(QueueMain, true, false, false, false, amqp.Table{
+		"x-dead-letter-exchange":    "",
+		"x-dead-letter-routing-key": QueueDLQ,
+	}); err != nil {
 		return err
 	}
 
