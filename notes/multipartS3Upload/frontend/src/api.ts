@@ -1,5 +1,12 @@
+import axios, { AxiosError } from "axios";
+
 // Thin client for the Go backend's four multipart endpoints.
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8080";
+
+const http = axios.create({
+  baseURL: API_BASE,
+  headers: { "Content-Type": "application/json" },
+});
 
 export interface InitResponse {
   key: string;
@@ -18,16 +25,19 @@ export interface CompletedPart {
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${path} failed (${res.status}): ${text}`);
+  try {
+    const res = await http.post<T>(path, body);
+    return res.data;
+  } catch (err) {
+    if (err instanceof AxiosError && err.response) {
+      const detail =
+        typeof err.response.data === "string"
+          ? err.response.data
+          : JSON.stringify(err.response.data);
+      throw new Error(`${path} failed (${err.response.status}): ${detail}`);
+    }
+    throw err;
   }
-  return res.json() as Promise<T>;
 }
 
 export const api = {

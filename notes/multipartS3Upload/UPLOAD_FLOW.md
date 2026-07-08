@@ -18,7 +18,7 @@ Backend không nhận file bytes. Backend chỉ điều phối upload và tạo 
 
 - `frontend/src/App.tsx`: UI chọn file, bấm upload, abort, hiển thị progress.
 - `frontend/src/multipartUpload.ts`: logic điều phối chính của multipart upload ở frontend.
-- `frontend/src/api.ts`: client gọi API backend.
+- `frontend/src/api.ts`: client gọi API backend bằng axios.
 - `backend/internal/handler/handler.go`: HTTP handlers cho `/uploads/*`.
 - `backend/internal/s3svc/s3svc.go`: wrapper gọi AWS S3 SDK.
 - `backend/internal/config/config.go`: config part size, bucket, region, CORS origin, expiry.
@@ -88,12 +88,28 @@ const { key, uploadId, partSize } = await api.init(
 );
 ```
 
-API client ở `frontend/src/api.ts`:
+API client ở `frontend/src/api.ts`. File này tạo axios instance dùng chung:
+
+```ts
+const http = axios.create({
+  baseURL: API_BASE,
+  headers: { "Content-Type": "application/json" },
+});
+```
+
+Sau đó `api.init` gọi backend qua `http.post`:
 
 ```ts
 init(filename: string, size: number, contentType: string) {
   return postJSON<InitResponse>("/uploads/init", { filename, size, contentType });
 }
+```
+
+`postJSON` dùng axios và trả về `res.data`:
+
+```ts
+const res = await http.post<T>(path, body);
+return res.data;
 ```
 
 Backend handler ở `backend/internal/handler/handler.go`, function `Init`:
@@ -167,7 +183,7 @@ const { parts: presigned } = await api.presignParts(
 );
 ```
 
-API client ở `frontend/src/api.ts`:
+API client ở `frontend/src/api.ts`, vẫn đi qua helper `postJSON` dùng axios:
 
 ```ts
 presignParts(key: string, uploadId: string, partNumbers: number[]) {
@@ -380,7 +396,7 @@ FE gọi complete:
 const result = await api.complete(key, uploadId, completed);
 ```
 
-API client ở `frontend/src/api.ts`:
+API client ở `frontend/src/api.ts`, vẫn đi qua helper `postJSON` dùng axios:
 
 ```ts
 complete(key: string, uploadId: string, parts: CompletedPart[]) {
@@ -611,6 +627,7 @@ User chọn file
 
 - Backend không nhận file bytes.
 - File bytes đi trực tiếp từ browser lên S3.
+- FE dùng axios để gọi các API backend `/uploads/*`.
 - Backend cần AWS credentials để gọi S3 control-plane API.
 - Browser cần S3 bucket CORS cho `PUT` và expose `ETag`.
 - Mỗi part fail thì retry riêng part đó.
