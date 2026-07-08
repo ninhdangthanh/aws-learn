@@ -2,7 +2,7 @@
 
 Plan để tự dựng và thực hành Elasticsearch cho phần notes. Mục tiêu: chạy được ES + Kibana bằng Docker, tự tay tạo index/mapping, index dữ liệu thật, viết query DSL và aggregation, rồi nối với một backend nhỏ để hiểu luồng sync DB → ES.
 
-Kiến thức lý thuyết nằm ở [elasticsearch-middle-notes.md](elasticsearch-middle-notes.md). File này chỉ là plan hành động.
+Kiến thức lý thuyết nằm ở [elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md). File này chỉ là plan hành động.
 
 ---
 
@@ -25,16 +25,16 @@ Kết luận: **ES + Kibana = combo tối thiểu đúng chuẩn.** Logstash/Bea
 
 ## Phase 0 — Chuẩn bị (30 phút)
 
-- [ ] Cài Docker + Docker Compose.
-- [ ] Tạo thư mục `notes/elasticsearchStack/` cho code demo (giống cách [multipartS3Upload](multipartS3Upload/README.md) tổ chức).
-- [ ] Trên macOS/Linux, tăng `vm.max_map_count` nếu ES báo lỗi bootstrap (`sysctl -w vm.max_map_count=262144`).
+- [x] Cài Docker + Docker Compose.
+- [x] Tạo thư mục `notes/elasticsearchStack/` cho code demo (giống cách [multipartS3Upload](../multipartS3Upload/README.md) tổ chức).
+- [x] Trên macOS/Linux, tăng `vm.max_map_count` nếu ES báo lỗi bootstrap (`sysctl -w vm.max_map_count=262144`).
 
 ---
 
 ## Phase 1 — Dựng ES + Kibana bằng Docker (1-2 giờ)
 
-- [ ] Viết `docker-compose.yml` với 2 service: `elasticsearch` (port 9200) và `kibana` (port 5601).
-- [ ] Local học: single node, tắt security cho nhẹ.
+- [x] Viết `docker-compose.yml` với 2 service: `elasticsearch` (port 9200) và `kibana` (port 5601).
+- [x] Local học: single node, tắt security cho nhẹ.
 
 ```yaml
 # notes/elasticsearchStack/docker-compose.yml  (bản local học, KHÔNG dùng production)
@@ -60,10 +60,10 @@ services:
       - elasticsearch
 ```
 
-- [ ] `docker compose up -d`.
-- [ ] Verify ES: `curl localhost:9200` → thấy version + cluster name.
-- [ ] Verify cluster health: `curl localhost:9200/_cluster/health` → `status: green/yellow`.
-- [ ] Mở Kibana: http://localhost:5601 → vào **Dev Tools** (console gõ query trực tiếp).
+- [x] `docker compose up -d`.
+- [x] Verify ES: `curl localhost:9200` → thấy version + cluster name.
+- [x] Verify cluster health: `curl localhost:9200/_cluster/health` → `status: green/yellow`.
+- [x] Mở Kibana: http://localhost:5601 → vào **Dev Tools** (console gõ query trực tiếp).
 
 ---
 
@@ -71,11 +71,11 @@ services:
 
 Chọn 1 dataset quen thuộc (vd `products`) để bám suốt.
 
-- [ ] Tạo index với mapping tường minh: `text` cho `name`/`description`, `keyword` cho `status`/`category`/`sku`, `number` cho `price`, `date` cho `created_at`, multi-field `name.raw` (keyword) để sort.
-- [ ] Index vài document bằng `PUT /products/_doc/{id}`, dùng **id của DB làm `_id`** (idempotent).
-- [ ] Bulk index 20-50 document bằng `_bulk` API.
-- [ ] CRUD: get theo id, update, delete.
-- [ ] Xem lại mapping tự sinh: `GET /products/_mapping`.
+- [x] Tạo index với mapping tường minh: `text` cho `name`/`description`, `keyword` cho `status`/`category`/`sku`, `number` cho `price`, `date` cho `created_at`, multi-field `name.raw` (keyword) để sort.
+- [x] Index vài document bằng `PUT /products/_doc/{id}`, dùng **id của DB làm `_id`** (idempotent).
+- [x] Bulk index 20-50 document bằng `_bulk` API.
+- [x] CRUD: get theo id, update, delete.
+- [x] Xem lại mapping tự sinh: `GET /products/_mapping`.
 
 Nghiệm thu: giải thích được vì sao chọn `text` vs `keyword` cho từng field.
 
@@ -83,13 +83,13 @@ Nghiệm thu: giải thích được vì sao chọn `text` vs `keyword` cho từ
 
 ## Phase 3 — Query DSL (3-4 giờ, phần quan trọng nhất)
 
-- [ ] `match` full-text trên `name` → quan sát `_score`.
-- [ ] `term` trên `status` (keyword) → so sánh với `match` để thấy khác biệt analyze.
-- [ ] `bool` với `must` (rank) + `filter` (status, `range` giá) → hiểu query vs filter context.
-- [ ] `multi_match` với boost `name^3, description`.
-- [ ] `match_phrase`, `fuzziness: AUTO` (typo).
-- [ ] Thêm `"explain": true` để đọc vì sao document được điểm đó (TF/IDF/field length).
-- [ ] Phân trang: thử `from/size`, rồi `search_after` với sort ổn định.
+- [x] `match` full-text trên `name` → quan sát `_score`.
+- [x] `term` trên `status` (keyword) → so sánh với `match` để thấy khác biệt analyze.
+- [x] `bool` với `must` (rank) + `filter` (status, `range` giá) → hiểu query vs filter context.
+- [x] `multi_match` với boost `name^3, description`.
+- [x] `match_phrase`, `fuzziness: AUTO` (typo).
+- [x] Thêm `"explain": true` để đọc vì sao document được điểm đó (TF/IDF/field length).
+- [x] Phân trang: thử `from/size`, rồi `search_after` với sort ổn định.
 
 Nghiệm thu: viết được 1 query "search + filter + sort + paginate" hoàn chỉnh và giải thích từng mệnh đề.
 
@@ -97,10 +97,10 @@ Nghiệm thu: viết được 1 query "search + filter + sort + paginate" hoàn 
 
 ## Phase 4 — Aggregation + Kibana dashboard (2-3 giờ)
 
-- [ ] `terms` agg: đếm sản phẩm theo `category`.
-- [ ] `date_histogram` + `sum`: doanh thu theo ngày (`size: 0`).
-- [ ] `cardinality`: đếm distinct (hiểu là xấp xỉ HyperLogLog).
-- [ ] Tạo **Data View** trong Kibana → dựng 1 dashboard đơn giản (bar chart theo category, line chart theo ngày).
+- [x] `terms` agg: đếm sản phẩm theo `category`.
+- [x] `date_histogram` + `sum`: doanh thu theo ngày (`size: 0`).
+- [x] `cardinality`: đếm distinct (hiểu là xấp xỉ HyperLogLog).
+- [x] Tạo **Data View** trong Kibana → dựng 1 dashboard đơn giản (bar chart theo category, line chart theo ngày).
 
 Nghiệm thu: đọc được kết quả agg và giải thích bucket vs metric.
 
@@ -112,19 +112,19 @@ Nghiệm thu: đọc được kết quả agg và giải thích bucket vs metric
 
 ### 5.1 Backend + source of truth
 
-- [ ] Backend nhỏ (**Go + Gin**, chốt) với PostgreSQL là source of truth cho `products`.
-- [ ] Bảng `products` (id, name, description, price, status, category, created_at, updated_at).
-- [ ] Endpoint `GET /search?q=...&category=...` → query ES → trả kết quả (KHÔNG query SQL để search).
-- [ ] Endpoint write CRUD: `POST /products` (create), `PUT /products/{id}` (update), `DELETE /products/{id}` — ghi Postgres + outbox trong cùng transaction.
-- [ ] Dùng **id của Postgres làm `_id` trong ES** → index lại luôn idempotent, không tạo bản trùng.
+- [x] Backend nhỏ (**Go + Gin**, chốt) với PostgreSQL là source of truth cho `products`.
+- [x] Bảng `products` (id, name, description, price, status, category, created_at, updated_at).
+- [x] Endpoint `GET /search?q=...&category=...` → query ES → trả kết quả (KHÔNG query SQL để search).
+- [x] Endpoint write CRUD: `POST /products` (create), `PUT /products/{id}` (update), `DELETE /products/{id}` — ghi Postgres + outbox trong cùng transaction.
+- [x] Dùng **id của Postgres làm `_id` trong ES** → index lại luôn idempotent, không tạo bản trùng.
 
 ### 5.1b Frontend (React + Vite) — chốt scope: Search UI + CRUD admin
 
 FE không có trong plan gốc; bổ sung theo quyết định để demo trực quan.
 
-- [ ] Trang **Search**: box tìm kiếm, filter (category/status/price), facet count, highlight, autocomplete (Phase 6).
-- [ ] Trang **Admin CRUD**: form Create / Update / Delete product → gọi `POST/PUT/DELETE` backend.
-- [ ] Demo consistency nhìn thấy được: tạo/sửa/xóa product ở Admin → Search phản ánh lại; tắt ES → thấy lệch; bật ES → outbox worker tự hồi phục.
+- [x] Trang **Search**: box tìm kiếm + filter (category/brand/status/in_stock/price) → query ES. (facet count, highlight, autocomplete để **Phase 6**.)
+- [x] Trang **Admin CRUD**: form Create / Update / Delete product → gọi `POST/PUT/DELETE` backend.
+- [x] Demo consistency nhìn thấy được: tạo/sửa/xóa product ở Admin → Search phản ánh lại; tắt ES → thấy lệch; bật ES → outbox worker tự hồi phục.
 
 ### 5.2 Bước 1 — Dual write (làm trước để thấy vấn đề)
 
@@ -137,9 +137,9 @@ POST /products
   -> trả 201
 ```
 
-- [ ] Cài dual write theo luồng trên.
-- [ ] **Chủ động tạo lỗi**: tắt ES container rồi tạo product → Postgres đã ghi nhưng ES fail → **dữ liệu lệch** (search không thấy product vừa tạo).
-- [ ] Ghi nhận: đây là bài toán **dual-write inconsistency** — hai hệ thống, không có transaction chung, một cái thành công một cái fail.
+- [x] Cài dual write theo luồng trên.
+- [x] **Chủ động tạo lỗi**: tắt ES container rồi tạo product → Postgres đã ghi nhưng ES fail → **dữ liệu lệch** (search không thấy product vừa tạo).
+- [x] Ghi nhận: đây là bài toán **dual-write inconsistency** — hai hệ thống, không có transaction chung, một cái thành công một cái fail.
 
 Kết luận rút ra: dual write chỉ hợp demo/dev; production cần cơ chế đảm bảo eventual consistency.
 
@@ -188,11 +188,11 @@ loop mỗi ~1s:
   # ES fail -> KHÔNG update processed_at -> vòng sau retry (at-least-once)
 ```
 
-- [ ] Cài outbox + worker theo trên.
-- [ ] Lặp lại thí nghiệm tắt ES: giờ product vẫn nằm trong outbox `processed_at IS NULL`, bật ES lên → worker tự index → dữ liệu **tự hồi phục** (eventual consistency).
-- [ ] Vì index dùng `_id = product id` nên retry index nhiều lần vẫn an toàn (**idempotent**).
+- [x] Cài outbox + worker theo trên.
+- [x] Lặp lại thí nghiệm tắt ES: giờ product vẫn nằm trong outbox `processed_at IS NULL`, bật ES lên → worker tự index → dữ liệu **tự hồi phục** (eventual consistency).
+- [x] Vì index dùng `_id = product id` nên retry index nhiều lần vẫn an toàn (**idempotent**).
 
-Liên kết: [event-driven-architecture.md](event-driven-architecture.md) (outbox, at-least-once + idempotent consumer), [rabbitmq-middle-notes.md](rabbitmq-middle-notes.md) (worker pattern, có thể thay poll bằng đẩy qua queue).
+Liên kết: [event-driven-architecture.md](../event-driven-architecture.md) (outbox, at-least-once + idempotent consumer), [rabbitmq-middle-notes.md](../rabbitmq-middle-notes.md) (worker pattern, có thể thay poll bằng đẩy qua queue).
 
 > Nâng cao (không bắt buộc): thay poll outbox bằng **CDC** (Debezium đọc WAL của Postgres) đẩy thẳng thay đổi sang ES/Kafka. Chỉ cần biết khái niệm để trả lời phỏng vấn.
 
@@ -207,7 +207,7 @@ UPDATE product -> INSERT outbox(op='index',  payload=snapshot mới)
 DELETE product -> INSERT outbox(op='delete', aggregate_id=id)   # worker gọi DELETE /products/_doc/{id}
 ```
 
-- [ ] Test: xóa product ở DB → search trên ES không còn trả nó (không để "document mồ côi").
+- [x] Test: xóa product ở DB → search trên ES không còn trả nó (không để "document mồ côi").
 
 **Ordering / stale write (chống ghi đè ngược).** Worker chạy song song hoặc retry có thể index bản cũ sau bản mới → ES giữ dữ liệu cũ. Chặn bằng **external version**: lấy `updated_at` (hoặc cột `version` tăng dần) làm version, ES chỉ ghi khi version mới hơn.
 
@@ -216,18 +216,18 @@ PUT /products/_doc/{id}?version={updated_at_epoch}&version_type=external
 # ES từ chối (409) nếu document hiện tại đã có version >= version gửi lên -> bản cũ không đè bản mới
 ```
 
-- [ ] Test: bắn 2 update theo thứ tự đảo → ES vẫn giữ bản mới nhất.
+- [x] Test: bắn 2 update theo thứ tự đảo → ES vẫn giữ bản mới nhất.
 
 **Initial backfill.** Khi mới gắn ES vào DB đã có dữ liệu, phải nạp toàn bộ row hiện có.
 
-- [ ] Viết job quét `products` theo trang (keyset theo id) → `_bulk` index sang ES.
-- [ ] Backfill phải idempotent (dùng `_id` = product id) để chạy lại an toàn.
+- [x] Viết job quét `products` theo trang (keyset theo id) → `_bulk` index sang ES.
+- [x] Backfill phải idempotent (dùng `_id` = product id) để chạy lại an toàn.
 
 **Drift detection / reconciliation (mấu chốt).** Dù có outbox, 2 store vẫn lệch được: bug worker, sửa tay DB, ES mất dữ liệu. Vì **SQL là source of truth** nên cần job đối soát định kỳ:
 
-- [ ] Job so số lượng: `COUNT(*)` DB vs `_count` ES; cảnh báo nếu lệch.
-- [ ] Job đối soát sâu hơn: so `updated_at`/checksum theo lô id, cái nào lệch thì re-index từ DB.
-- [ ] Chấp nhận SQL luôn thắng: khi nghi ngờ, **rebuild ES từ DB** (chính là backfill + alias ở 5.4/5.5) — không bao giờ sửa ngược DB theo ES.
+- [x] Job so số lượng: `COUNT(*)` DB vs `_count` ES; cảnh báo nếu lệch.
+- [x] Job đối soát sâu hơn: so `updated_at`/checksum theo lô id, cái nào lệch thì re-index từ DB.
+- [x] Chấp nhận SQL luôn thắng: khi nghi ngờ, **rebuild ES từ DB** (chính là backfill + alias ở 5.4/5.5) — không bao giờ sửa ngược DB theo ES.
 
 Nghiệm thu mục này: create/update/delete đều phản ánh sang ES; bản cũ không đè bản mới; có backfill và có cách phát hiện + sửa drift.
 
@@ -252,8 +252,8 @@ POST /_aliases {             # chuyển alias atomic trong 1 lệnh
 DELETE /products_v1          (sau khi verify)
 ```
 
-- [ ] Tạo index qua alias ngay từ 5.1 (app trỏ `products` là alias).
-- [ ] Thực hành đổi mapping → `_reindex` → chuyển alias → xóa index cũ, đo xem search có gián đoạn không.
+- [x] Tạo index qua alias ngay từ 5.1 (app trỏ `products` là alias).
+- [x] Thực hành đổi mapping → `_reindex` → chuyển alias → xóa index cũ, đo xem search có gián đoạn không.
 
 Nghiệm thu Phase 5:
 
@@ -265,7 +265,7 @@ Nghiệm thu Phase 5:
 
 ## Phase 6 — Search feature API thật (bắt buộc, 3-4 giờ)
 
-Phần này biến kiến thức query thành một API search giống production. Tham chiếu lý thuyết: mục 12 trong [elasticsearch-middle-notes.md](elasticsearch-middle-notes.md).
+Phần này biến kiến thức query thành một API search giống production. Tham chiếu lý thuyết: mục 12 trong [elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md).
 
 ### 6.1 Highlighting
 
@@ -312,8 +312,8 @@ Nghiệm thu Phase 6: có một endpoint `GET /search` trả kết quả có hig
 
 ## Phase 7 — Ghi lại & tổng kết (1 giờ)
 
-- [ ] Lưu các query đã chạy vào `notes/elasticsearchStack/queries.http` hoặc file Kibana export.
-- [ ] Cập nhật phần "Tự đánh giá" trong [elasticsearch-middle-notes.md](elasticsearch-middle-notes.md): tự chấm mục nào đã đạt.
+- [ ] Lưu các query đã chạy vào thư mục `queries/` (đã có `phase2..4-*.http`) hoặc file Kibana export.
+- [ ] Cập nhật phần "Tự đánh giá" trong [elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md): tự chấm mục nào đã đạt.
 - [ ] Viết 5-8 câu Q&A deep dive cho riêng ES (bám mục 14 của file notes).
 
 ---

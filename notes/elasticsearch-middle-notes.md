@@ -4,7 +4,7 @@ File này gom kiến thức Elasticsearch ở mức Middle Backend: đủ để 
 
 Elasticsearch không chỉ là "search cho nhanh". Cần hiểu document được **analyze** thành term, lưu vào **inverted index** bên trong các **segment** bất biến của Lucene, rồi scoring bằng **BM25**, và tất cả được phân tán qua **shard/replica** trên nhiều node. Hiểu được luồng đó thì phần còn lại (mapping, query, relevance, aggregation, vận hành) mới có gốc để bám.
 
-Stack tối thiểu để học và demo: **Elasticsearch + Kibana**. Logstash/Beats chỉ cần khi dựng log pipeline thật (xem [elasticsearch-implement-plan.md](elasticsearch-implement-plan.md)).
+Stack tối thiểu để học và demo: **Elasticsearch + Kibana**. Logstash/Beats chỉ cần khi dựng log pipeline thật (xem [elasticsearch-implement-plan.md](elasticsearchStack/elasticsearch-implement-plan.md)).
 
 Mindset chốt:
 

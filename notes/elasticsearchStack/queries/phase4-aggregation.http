@@ -1,0 +1,78 @@
+### Phase 4 — Aggregation (bucket vs metric)
+### Seed trước: ./scripts/seed-products.sh . size:0 = chỉ lấy agg, bỏ hits.
+@es = http://localhost:9200
+
+### 1. terms agg — đếm sản phẩm theo category (bucket)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "by_category": {
+      "terms": { "field": "category", "size": 20 }
+    }
+  }
+}
+
+### 2. terms + sub-metric — mỗi category kèm giá trung bình (bucket + metric lồng nhau)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "by_category": {
+      "terms": { "field": "category", "size": 20 },
+      "aggs": {
+        "avg_price": { "avg": { "field": "price" } }
+      }
+    }
+  }
+}
+
+### 3. date_histogram + sum — "doanh thu" (tổng price) theo tháng
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "per_month": {
+      "date_histogram": { "field": "created_at", "calendar_interval": "month" },
+      "aggs": {
+        "revenue": { "sum": { "field": "price" } }
+      }
+    }
+  }
+}
+
+### 4. cardinality — đếm distinct brand (xấp xỉ HyperLogLog, không chính xác tuyệt đối ở scale lớn)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "distinct_brands": { "cardinality": { "field": "brand" } }
+  }
+}
+
+### 5. stats — min/max/avg/sum giá trong 1 lần (metric tổng hợp)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "price_stats": { "stats": { "field": "price" } }
+  }
+}
+
+### 6. Kết hợp filter + agg — chỉ tính trên hàng active, đếm theo brand
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "query": { "term": { "status": "active" } },
+  "aggs": {
+    "by_brand": { "terms": { "field": "brand", "size": 20 } }
+  }
+}
+
+### --- Kibana Data View + dashboard (làm trong UI) ---
+### 1) Kibana → Stack Management → Data Views → Create data view
+###    name/pattern = products, timestamp field = created_at
+### 2) Dashboard → Create → thêm 2 visualization:
+###    - Bar: Vertical bar, X = category (terms), Y = Count
+###    - Line: X = created_at (date histogram, monthly), Y = Sum(price)
+### 3) Save dashboard "Products overview"
