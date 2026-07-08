@@ -13,6 +13,7 @@ queries/             File .http / _bulk theo từng phase (chạy bằng curl ho
 scripts/             Script seed / verify.
 backend/             (Phase 5) Go + Gin: /search + CRUD (POST/PUT/DELETE), dual-write → outbox worker → alias reindex, deep reconcile.
 frontend/            (Phase 5) React + Vite: Search UI (ES) + Admin CRUD (Postgres) + sync status bar.
+.claude/skills/      Skills cho Claude Code — orient/tra cứu project (xem "Skills" bên dưới).
 ```
 
 ## Tiến độ (commit theo phase)
@@ -136,3 +137,17 @@ npm install && npm run dev            # http://localhost:5173  (cần backend ch
 - **Status bar** poll `/admin/reconcile` mỗi 3s: badge IN SYNC/DRIFT, PG vs ES count, outbox pending, nút Backfill.
 - Demo trực quan: tạo product ở Admin (hiện ngay vì đọc SQL) → chuyển tab Search sau ~1s thấy nó (ES qua worker).
   Tắt ES rồi tạo → status bar chuyển **DRIFT** + outbox pending tăng; bật ES → tự về **IN SYNC**.
+
+## Skills (Claude Code)
+
+`.claude/skills/` chứa các skill để **orient / tra cứu** project khi làm việc với Claude Code
+(định hướng, không phải để thêm feature). Gõ `/<tên-skill>` hoặc để Claude tự chọn theo câu hỏi.
+
+| Skill | Dùng khi hỏi |
+|---|---|
+| `es-stack-map` | "Project này có gì / stack gì / kiến trúc / port / chạy sao" — bản đồ tổng hệ thống. |
+| `es-backend-map` | "Backend có gì / endpoint nào / worker chạy sao / config env / package nào làm gì". |
+| `es-frontend-map` | "Frontend có gì / component nào / gọi API sao / tab nào làm gì". |
+| `es-query-guide` | "Viết query / match vs term / bool / aggregation / phân trang search_after" trên index `products`. |
+| `es-data-verify` | "Data ES đúng chưa / PG và ES có khớp không / verify sync / soi mapping, outbox". |
+| `es-troubleshoot` | "ES không lên / docker lỗi / port bận / go run fail / reset stack / chạy lại phase". |
