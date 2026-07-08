@@ -168,3 +168,52 @@ Toàn bộ = XHR đo byte upload từng part → cộng dồn → chia tổng si
 ⚠️ **`e.loaded` = byte đã rời browser / TCP nhận, KHÔNG phải "S3 đã lưu xong".** Nên
 khi thanh đạt 100% nghĩa là "đã gửi hết lên", rồi mới chờ S3 trả `ETag` xác nhận.
 Với file lớn, khoảng chờ giữa "100%" và "done" là bình thường.
+
+---
+
+# Có gộp chung API `init` với `presign-parts` không?
+
+**Về kỹ thuật thì gộp được, nhưng KHÔNG nên** — tách ra là chủ đích thiết kế.
+
+Sau khi `init` có `key` + `uploadId` và biết `size` + `partSize`, backend hoàn toàn
+tính được số part (`numParts = ceil(size / partSize)`) → có thể sinh luôn tất cả
+presigned URL và trả về trong 1 response. Nhưng làm vậy sẽ mất khả năng xử lý retry.
+
+## Lý do cốt lõi để tách: part fail hoặc URL hết hạn
+
+Presigned URL chỉ là "vé tạm thời" cho **một** thao tác PUT, có TTL (900s theo
+config). Trong khi upload file lớn, một part rất dễ:
+- **Upload lỗi** (mạng đứt giữa chừng), hoặc
+- **URL hết hạn** trước khi tới lượt được upload (file nhiều GB, hàng nghìn part).
+
+Khi đó client **chỉ cần gọi lại `presign-parts` với đúng part number bị lỗi** (vd
+`partNumbers: [7]`) → nhận URL mới → PUT lại riêng part đó. Không đụng gì tới
+`uploadId` hay các part khác đã xong.
+
+Ba điều làm việc retry lẻ này an toàn:
+
+1. **`uploadId` sống lâu** — tồn tại tới khi `complete` hoặc `abort`, KHÔNG hết hạn
+   theo TTL như presigned URL. Nên xin URL mới bao nhiêu lần cũng được.
+2. **Part number idempotent** — upload lại cùng `partNumber` sẽ **ghi đè** part cũ
+   trên S3, không tạo trùng. ETag cuối cùng là cái dùng ở `complete`.
+3. **Presigned URL độc lập với upload** — hết hạn thì xin vé mới, bản thân multipart
+   upload (`uploadId`) không bị ảnh hưởng.
+
+Đây chính là lý do `presignRequest.PartNumbers` là **mảng** (`handler.go:80`) chứ
+không phải một số — phục vụ được cả 2 tình huống: xin tất cả lúc đầu, và xin lẻ vài
+part khi retry. Comment ở `handler.go:88` nói rõ: *"The client can ask for all parts
+at once or in batches (e.g. as it retries)."*
+
+## Nếu gộp chung thì sao?
+
+Mỗi lần một part hết hạn sẽ phải hoặc:
+- **init lại cả upload** → lãng phí, mất các part đã lên, tạo `uploadId` orphan, hoặc
+- **vẫn cần một endpoint riêng để xin lại URL** → rốt cuộc vẫn phải có `presign-parts`.
+
+→ Tách ra là đúng. Gộp chỉ hợp lý khi file **nhỏ / ít part** và không cần retry độc
+lập; khi đó có thể làm dạng tùy chọn (thêm `presignAll bool` vào `initRequest` để
+`init` trả luôn danh sách `parts`), vẫn giữ `presign-parts` cho file lớn.
+
+## Tham chiếu
+- `backend/internal/handler/handler.go:77-90` (presignRequest nhận mảng partNumbers)
+- `backend/internal/handler/handler.go:99` (validate 1 ≤ partNumber ≤ 10000)
