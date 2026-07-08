@@ -312,9 +312,9 @@ Nghiệm thu Phase 6: có một endpoint `GET /search` trả kết quả có hig
 
 ## Phase 7 — Ghi lại & tổng kết (1 giờ)
 
-- [ ] Lưu các query đã chạy vào thư mục `queries/` (đã có `phase2..4-*.http`) hoặc file Kibana export.
-- [ ] Cập nhật phần "Tự đánh giá" trong [elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md): tự chấm mục nào đã đạt.
-- [ ] Viết 5-8 câu Q&A deep dive cho riêng ES (bám mục 14 của file notes).
+- [x] Lưu các query đã chạy vào thư mục `queries/` (`phase2..4`, `phase5-sync-alias`, `phase6-search-feature`).
+- [x] Cập nhật phần "Tự đánh giá" trong [elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md): tự chấm mục nào đã đạt (§15).
+- [x] Viết 5-8 câu Q&A deep dive cho riêng ES (bám mục 14 của file notes) → [deep-dive-qa.md](deep-dive-qa.md) (8 câu).
 
 ---
 

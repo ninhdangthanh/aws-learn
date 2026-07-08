@@ -24,7 +24,7 @@ frontend/            (Phase 5) React + Vite: Search UI (ES) + Admin CRUD (Postgr
 - [x] **Phase 4** — Aggregation + Kibana dashboard.
 - [x] **Phase 5** — Backend + sync DB → ES (dual-write → outbox → alias reindex).
 - [x] **Phase 6** — Search feature API + React UI (highlight, facet, synonym/suggest, fallback, tenant).
-- [ ] Phase 7 — Ghi lại & tổng kết.
+- [x] **Phase 7** — Ghi lại & tổng kết ([deep-dive-qa.md](deep-dive-qa.md) + queries đủ phase + self-assessment §15).
 
 ## Phase 1 — Chạy stack
 
@@ -175,6 +175,17 @@ npm install && npm run dev            # http://localhost:5173  (cần backend ch
 - **Status bar** poll `/admin/reconcile` mỗi 3s: badge IN SYNC/DRIFT, PG vs ES count, outbox pending, nút Backfill.
 - Demo trực quan: tạo product ở Admin (hiện ngay vì đọc SQL) → chuyển tab Search sau ~1s thấy nó (ES qua worker).
   Tắt ES rồi tạo → status bar chuyển **DRIFT** + outbox pending tăng; bật ES → tự về **IN SYNC**.
+
+## Phase 7 — Ghi lại & tổng kết
+
+- **Query theo từng phase** (`queries/`): `phase2-index-mapping-crud`, `phase3-query-dsl`,
+  `phase4-aggregation`, `phase5-sync-alias` (alias/external-version/reindex/reconcile — phần ES của luồng sync),
+  `phase6-search-feature`. Chạy trong Kibana Dev Tools.
+- **Deep-dive Q&A**: [deep-dive-qa.md](deep-dive-qa.md) — 8 câu bám §14 của
+  [../elasticsearch-middle-notes.md](../elasticsearch-middle-notes.md), trả lời gắn với code đã build
+  (outbox + external version, alias reindex, search_after, post_filter, track_total_hits, highlight-XSS,
+  synonym/suggest, tenant filter).
+- **Tự đánh giá**: §15 của file notes — tự chấm mức Middle, có bằng chứng trỏ về project này.
 
 ## Skills (Claude Code)
 

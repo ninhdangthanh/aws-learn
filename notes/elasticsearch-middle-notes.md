@@ -677,15 +677,20 @@ Search luôn phải **kèm filter phạm vi truy cập**; quên là lộ dữ li
 
 ## 15. Tự đánh giá
 
-Coi như nắm đủ mức Middle khi có thể:
+Coi như nắm đủ mức Middle khi có thể (tự chấm 2026-07-08 — bằng chứng là project hands-on
+[elasticsearchStack](elasticsearchStack/README.md), Phase 1–7 đã chạy thật):
 
-* giải thích vì sao ES tồn tại bên cạnh DB và không thay DB (transaction, consistency, source of truth);
-* vẽ luồng **analyzer → inverted index (segment) → BM25**, và luồng **refresh/translog/flush/merge**;
-* giải thích near real-time, eventual consistency đến từ đâu;
-* viết `bool` query tách đúng `must` (rank) và `filter` (lọc), phân biệt `match` vs `term`;
-* chọn đúng `text`/`keyword` (multi-field) cho một schema thực tế và nói được hệ quả nếu chọn sai;
-* giải thích write path / read path (two-phase), routing, và vì sao không đổi được số primary shard;
-* nêu chiến lược sync DB→ES, vì sao dual-write lệch, outbox + idempotent (`_id` = id DB) đạt eventual consistency, và reindex bằng alias;
-* nói được aggregation nào là xấp xỉ và vì sao;
-* dựng được một search feature thật: highlighting, `track_total_hits`, faceted search (`post_filter` + facet count), synonyms/suggester, zero-result fallback, multi-tenant access filter, `_source` filtering;
-* kể ít nhất 4 edge case production (mapping explosion, fielddata OOM, deep pagination, oversharding, hot shard, security) và cách phòng.
+* [x] giải thích vì sao ES tồn tại bên cạnh DB và không thay DB (transaction, consistency, source of truth) — *Postgres = source of truth, ES = secondary store trong project*;
+* [x] vẽ luồng **analyzer → inverted index (segment) → BM25**, và luồng **refresh/translog/flush/merge**;
+* [x] giải thích near real-time, eventual consistency đến từ đâu — *quan sát trực tiếp: create ở Admin → ~1s sau Search mới thấy (worker + refresh)*;
+* [x] viết `bool` query tách đúng `must` (rank) và `filter` (lọc), phân biệt `match` vs `term` — *[phase3-query-dsl.http](elasticsearchStack/queries/phase3-query-dsl.http)*;
+* [x] chọn đúng `text`/`keyword` (multi-field) cho một schema thực tế và nói được hệ quả nếu chọn sai — *mapping `products` có `name` text + `name.raw` keyword*;
+* [x] giải thích write path / read path (two-phase), routing, và vì sao không đổi được số primary shard;
+* [x] nêu chiến lược sync DB→ES, vì sao dual-write lệch, outbox + idempotent (`_id` = id DB) đạt eventual consistency, và reindex bằng alias — *tự tay dựng cả 2 chế độ `dual`/`outbox` + external version, xem [Phase 5](elasticsearchStack/README.md#phase-5--backend-go--gin--sync-db--es)*;
+* [x] nói được aggregation nào là xấp xỉ và vì sao — *`cardinality` (HyperLogLog), [phase4-aggregation.http](elasticsearchStack/queries/phase4-aggregation.http)*;
+* [x] dựng được một search feature thật: highlighting, `track_total_hits`, faceted search (`post_filter` + facet count), synonyms/suggester, zero-result fallback, multi-tenant access filter, `_source` filtering — *toàn bộ Phase 6, test 7/7 pass, xem [deep-dive-qa.md](elasticsearchStack/deep-dive-qa.md)*;
+* [x] kể ít nhất 4 edge case production (mapping explosion, fielddata OOM, deep pagination, oversharding, hot shard, security) và cách phòng — *§13*.
+
+Còn nợ / cần đào sâu thêm (ngoài scope hands-on hiện tại): vận hành cluster thật (multi-node,
+shard rebalance, quorum/split-brain), CDC bằng Debezium thay outbox poll, và relevance tuning
+dựa trên click-log thực tế.
