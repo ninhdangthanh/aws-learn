@@ -39,6 +39,7 @@ make up
 
 ## Docs
 
+- [Hướng dẫn flow chạy (từ UI → API → WebRTC)](docs/HUONG_DAN_FLOW.md)
 - [AWS deployment guide](docs/AWS_DEPLOYMENT_GUIDE.md)
 - [Route 53, ACM, and ALB notes](docs/route53_acm_alb_notes.md)
 - [WebRTC architecture notes](docs/WEBRTC_ARCHITECTURE_NOTES.md)
