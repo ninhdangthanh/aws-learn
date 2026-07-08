@@ -32,12 +32,15 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 | [Redis Middle Notes](redis-middle-notes.md) | Redis use cases, data types, JWT blacklist, sorted-set scheduler, cache invalidation, edge cases và cache strategies |
 | [MongoDB F&B Notes](mongo_fnb.md) | Document model, embed/reference, hot document, aggregation, index, sharding, transaction, TTL, change stream |
 | [Production Backend Concepts](production-backend-concepts.md) | Các tình huống production dễ bị hỏi: pagination, idempotency, cache stampede, retry storm, online migration, read replica stale |
+| [Elasticsearch Middle Notes](elasticsearch-middle-notes.md) | Inverted index, analyzer, `text` vs `keyword`, query DSL (query vs filter context), BM25 relevance, aggregation, sync DB→ES, reindex bằng alias, edge case production |
+| [Elasticsearch Stack Implement Plan](elasticsearch-implement-plan.md) | Plan dựng ES + Kibana bằng Docker và thực hành theo phase: index/mapping, query DSL, aggregation, dashboard, sync DB→ES |
 
 Concept nên nắm thêm trong nhóm này:
 
 * PostgreSQL: `EXPLAIN ANALYZE`, composite index, row/table lock, `SELECT ... FOR UPDATE`, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
 * Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, JWT blacklist, sorted-set scheduler, Redis Streams, distributed lock và fencing token.
 * MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
+* Elasticsearch: inverted index vs `LIKE`, analyzer (index và query cùng analyzer), `text` vs `keyword`, query context vs filter context, BM25 (TF/IDF/field length), aggregation bucket/metric, ES là secondary store, sync DB→ES (dual write/outbox/CDC), deep pagination với `search_after`, reindex zero-downtime bằng alias.
 
 ---
 
