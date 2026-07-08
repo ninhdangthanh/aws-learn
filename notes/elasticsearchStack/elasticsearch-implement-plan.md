@@ -269,42 +269,42 @@ Phần này biến kiến thức query thành một API search giống productio
 
 ### 6.1 Highlighting
 
-- [ ] Thêm `highlight` vào query search, trả đoạn khớp có `<em>`.
-- [ ] Ở backend: **escape HTML** phần text trước khi bọc tag để tránh XSS khi render.
+- [x] Thêm `highlight` vào query search, trả đoạn khớp có `<em>`.
+- [x] Ở backend: **escape HTML** phần text trước khi bọc tag để tránh XSS khi render.
 
 ### 6.2 Phân trang đúng + `track_total_hits`
 
-- [ ] Quan sát mặc định: tổng hit dừng ở `10000` (`relation: gte`) → UI hiện "10,000+".
-- [ ] Thử `track_total_hits: true` để lấy tổng chính xác, so sánh latency.
-- [ ] Paginate sâu bằng `search_after` (sort ổn định + tie-breaker `_id`), không dùng `from` lớn.
+- [x] Quan sát mặc định: tổng hit dừng ở `10000` (`relation: gte`) → UI hiện "10,000+".
+- [x] Thử `track_total_hits: true` để lấy tổng chính xác, so sánh latency.
+- [x] Paginate sâu bằng `search_after` (sort ổn định + tie-breaker `id`), không dùng `from` lớn.
 
 ### 6.3 Faceted search (filter + count)
 
-- [ ] Trả về facet `brand`, `category` bằng `terms` agg.
-- [ ] Dùng `post_filter` để chọn 1 brand mà **vẫn giữ count các brand khác**.
-- [ ] Test: chọn `brand=Apple` → hits chỉ Apple nhưng facet brand vẫn đủ mọi brand.
+- [x] Trả về facet `brand`, `category` bằng `terms` agg.
+- [x] Dùng `post_filter` để chọn 1 brand mà **vẫn giữ count các brand khác**.
+- [x] Test: chọn `brand=Apple` → hits chỉ Apple nhưng facet brand vẫn đủ mọi brand.
 
 ### 6.4 Synonyms + suggester
 
-- [ ] Cấu hình `synonym_graph` ở **search-time** (search_analyzer) để sửa synonym không phải reindex.
-- [ ] Test: search "notebook" ra sản phẩm gắn "laptop".
-- [ ] Thêm 1 endpoint autocomplete bằng `completion` suggester hoặc `search_as_you_type`.
-- [ ] (tùy chọn) `phrase suggester` cho "did you mean" khi gõ sai.
+- [x] Cấu hình `synonym_graph` ở **search-time** (search_analyzer) để sửa synonym không phải reindex.
+- [x] Test: search "notebook" ra sản phẩm gắn "laptop".
+- [x] Thêm 1 endpoint autocomplete bằng `completion` suggester hoặc `search_as_you_type`.
+- [x] (tùy chọn) `phrase suggester` cho "did you mean" khi gõ sai. *(dùng term suggester)*
 
 ### 6.5 Zero-result fallback
 
-- [ ] Query chính `operator=and`; nếu 0 hit → hạ `minimum_should_match` / thêm `fuzziness=AUTO`.
-- [ ] Nếu vẫn 0 → trả gợi ý "did you mean" hoặc danh sách phổ biến.
+- [x] Query chính `operator=and`; nếu 0 hit → hạ `minimum_should_match` / thêm `fuzziness=AUTO`.
+- [x] Nếu vẫn 0 → trả gợi ý "did you mean" hoặc danh sách phổ biến.
 
 ### 6.6 Multi-tenant access filter (bảo mật)
 
-- [ ] Backend **ép** `filter: term tenant_id` từ context đăng nhập, KHÔNG lấy từ request body.
-- [ ] Test negative: user tenant A không bao giờ thấy document tenant B dù query trùng từ khóa.
+- [x] Backend **ép** `filter: term tenant_id` từ context đăng nhập, KHÔNG lấy từ request body.
+- [x] Test negative: user tenant A không bao giờ thấy document tenant B dù query trùng từ khóa.
 
 ### 6.7 Tối ưu response
 
-- [ ] `_source` filtering: list chỉ trả `id, name, price, thumbnail`.
-- [ ] (tùy chọn) bật search slow log, xem query nào chậm.
+- [x] `_source` filtering: list chỉ trả `id, name, price, thumbnail`.
+- [x] (tùy chọn) bật search slow log, xem query nào chậm.
 
 Nghiệm thu Phase 6: có một endpoint `GET /search` trả kết quả có highlight, facet count đúng, hỗ trợ synonym + autocomplete, fallback khi 0 hit, và luôn ép tenant filter.
 
@@ -327,4 +327,4 @@ Nghiệm thu Phase 6: có một endpoint `GET /search` trả kết quả có hig
 5. [ ] Viết `bool` query đầu tiên (match + filter + range).
 6. [ ] 1 aggregation + 1 dashboard.
 7. [ ] Nối backend + sync DB→ES: dual write → outbox + worker → reindex bằng alias (Phase 5, phần lõi).
-8. [ ] Search API thật: highlight + facet (`post_filter`) + synonym/suggest + zero-result fallback + tenant filter (Phase 6).
+8. [x] Search API thật: highlight + facet (`post_filter`) + synonym/suggest + zero-result fallback + tenant filter (Phase 6).

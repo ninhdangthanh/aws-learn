@@ -26,9 +26,20 @@ func New(st *store.Store, es *esclient.Client, writeMode string) *Handler {
 
 func (h *Handler) useOutbox() bool { return h.writeMode != "dual" }
 
+// tenantOf — access context multi-tenant (6.6). Mô phỏng "login context" bằng header
+// X-Tenant-ID. LUÔN lấy từ đây, KHÔNG bao giờ từ request body/query -> user tenant A
+// không thể tự khai tenant B. Default 'default' để tương thích data Phase 5.
+func tenantOf(c *gin.Context) string {
+	if t := c.GetHeader("X-Tenant-ID"); t != "" {
+		return t
+	}
+	return "default"
+}
+
 func (h *Handler) Register(r *gin.Engine) {
 	r.GET("/healthz", h.health)
 	r.GET("/search", h.search)
+	r.GET("/suggest", h.suggest)
 	r.GET("/products", h.list)
 	r.POST("/products", h.create)
 	r.PUT("/products/:id", h.update)
@@ -73,7 +84,9 @@ func (h *Handler) create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
-	p, err := h.st.CreateProduct(c, in.toProduct(), h.useOutbox())
+	prod := in.toProduct()
+	prod.TenantID = tenantOf(c) // stamp tenant từ context, KHÔNG lấy từ body (6.6)
+	p, err := h.st.CreateProduct(c, prod, h.useOutbox())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -95,7 +108,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	p := in.toProduct()
 	p.ID = id
-	updated, err := h.st.UpdateProduct(c, p, h.useOutbox())
+	updated, err := h.st.UpdateProduct(c, tenantOf(c), p, h.useOutbox())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "product không tồn tại"})
@@ -114,7 +127,7 @@ func (h *Handler) delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id không hợp lệ"})
 		return
 	}
-	if err := h.st.DeleteProduct(c, id, h.useOutbox()); err != nil {
+	if err := h.st.DeleteProduct(c, tenantOf(c), id, h.useOutbox()); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "product không tồn tại"})
 			return

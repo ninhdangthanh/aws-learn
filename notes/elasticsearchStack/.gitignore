@@ -4,6 +4,7 @@
 
 # go
 backend/bin/
+backend/.gocache/
 
 # node / vite
 node_modules/

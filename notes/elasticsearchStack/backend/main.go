@@ -71,7 +71,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: []string{cfg.CORSOrigin},
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Content-Type"},
+		AllowHeaders: []string{"Content-Type", "X-Tenant-ID"},
 	}))
 	handler.New(st, es, cfg.WriteMode).Register(r)
 

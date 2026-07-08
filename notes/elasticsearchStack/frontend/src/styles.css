@@ -72,3 +72,38 @@ th { color: var(--muted); font-weight: 600; }
 .hint { color: var(--muted); font-size: 12px; }
 .formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .formgrid .full { grid-column: 1 / -1; }
+
+/* Phase 6 — search layout: facets + kết quả */
+.search-layout { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 720px) { .search-layout { grid-template-columns: 1fr; } }
+
+.facets { display: grid; gap: 16px; position: sticky; top: 12px; }
+.facet-block h4 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.facet-block ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.facet-block li {
+  display: flex; justify-content: space-between; gap: 8px; cursor: pointer;
+  padding: 5px 8px; border-radius: 6px; font-size: 13px; border: 1px solid transparent;
+}
+.facet-block li:hover { background: var(--panel); }
+.facet-block li.active { border-color: var(--accent); color: var(--accent); }
+.facet-block li .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.tenant-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.tenant-row select { width: auto; }
+.tenant-row label { margin: 0; }
+
+.suggest-wrap { position: relative; margin-bottom: 10px; }
+.suggest-list {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0;
+  list-style: none; padding: 4px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; max-height: 240px; overflow: auto;
+}
+.suggest-list li { padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.suggest-list li:hover { background: #0b1220; color: var(--accent); }
+
+.chips { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.chip { background: transparent; border: 1px solid var(--accent); color: var(--accent); font-size: 12px; padding: 3px 10px; }
+.linklike { background: none; border: none; color: var(--accent); padding: 0; font-weight: 600; cursor: pointer; }
+
+/* highlight từ ES: <em> đã escape-XSS ở backend */
+.name em, .desc em { background: rgba(56,189,248,.22); color: var(--accent); font-style: normal; border-radius: 3px; padding: 0 2px; }

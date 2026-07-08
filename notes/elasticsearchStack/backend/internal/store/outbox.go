@@ -65,8 +65,12 @@ func (s *Store) ProcessOutboxBatch(ctx context.Context, limit int, handle func(O
 }
 
 // ListProducts — danh sách product mới nhất từ Postgres (source of truth, cho Admin UI).
-func (s *Store) ListProducts(ctx context.Context, limit int) ([]Product, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT `+cols+` FROM products ORDER BY id DESC LIMIT $1`, limit)
+// tenantID ép cùng access context với Search UI.
+func (s *Store) ListProducts(ctx context.Context, tenantID string, limit int) ([]Product, error) {
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT `+cols+` FROM products WHERE tenant_id=$1 ORDER BY id DESC LIMIT $2`, tenantID, limit)
 	if err != nil {
 		return nil, err
 	}

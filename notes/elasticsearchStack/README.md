@@ -23,7 +23,7 @@ frontend/            (Phase 5) React + Vite: Search UI (ES) + Admin CRUD (Postgr
 - [x] **Phase 3** — Query DSL.
 - [x] **Phase 4** — Aggregation + Kibana dashboard.
 - [x] **Phase 5** — Backend + sync DB → ES (dual-write → outbox → alias reindex).
-- [ ] Phase 6 — Search feature API + React UI.
+- [x] **Phase 6** — Search feature API + React UI (highlight, facet, synonym/suggest, fallback, tenant).
 - [ ] Phase 7 — Ghi lại & tổng kết.
 
 ## Phase 1 — Chạy stack
@@ -124,6 +124,44 @@ go run .                                               # :8090, tự migrate + t
 Script: `./scripts/phase5-demo.sh` (outbox + recovery + backfill + reindex), `./scripts/phase5-stale-test.sh` (5.4b).
 
 > Lưu ý: backend tự "chiếm" tên `products` làm alias (xóa index practice Phase 2-4 nếu còn). Muốn chơi lại Phase 2-4 thì chạy `./scripts/seed-products.sh` khi backend chưa chạy.
+
+## Phase 6 — Search feature API thật
+
+Biến query DSL thành API search giống production. Cần **mapping mới** (synonym search-analyzer +
+`name.suggest` search_as_you_type + `tenant_id`) nên khi lên từ Phase 5 phải áp lại một lần:
+
+```bash
+cd backend && go run .                 # migrate thêm cột tenant_id + tạo alias
+curl -X POST localhost:8090/admin/reindex    # index mới với mapping Phase 6
+curl -X POST localhost:8090/admin/backfill   # nạp lại _source (điền tenant_id + suggest)
+
+../scripts/phase6-demo.sh              # demo end-to-end (terminal khác)
+```
+
+**Endpoint mới / mở rộng:**
+- `GET /search` — thêm: `search_after` (JSON array), `track_total_hits`, và luôn có `highlight`,
+  `facets{brand,category}`, `fallback`, `did_you_mean`, `next_search_after`, `total_relation`, `tenant`.
+- `GET /suggest?q=` — autocomplete (`search_as_you_type` trên `name.suggest`), cũng ép tenant.
+- Mọi read đều gửi/nhận header **`X-Tenant-ID`** (default `default`).
+
+**7 kỹ thuật (map với 6.1–6.7):**
+- **6.1 Highlight** — `<em>` quanh đoạn khớp. Backend dùng sentinel private-use, `html.EscapeString`
+  cả đoạn rồi mới thay bằng `<em>` → text gốc bị vô hiệu hóa (**chống XSS**), FE render an toàn.
+- **6.2 Paginate** — `track_total_hits` (`eq` chính xác vs `gte` khi cap ~10000 → UI "10,000+");
+  deep paging bằng `search_after` (sort `_score` desc + tie-breaker `id`), không `from` lớn.
+- **6.3 Facet** — `terms` agg brand+category; brand chọn bằng **`post_filter`** → hits chỉ brand đó
+  nhưng facet brand vẫn đủ mọi brand (agg chạy trước post_filter).
+- **6.4 Synonym + suggest** — `synonym_graph` ở **search_analyzer** (sửa synonym chỉ cần close/open,
+  không reindex doc): "notebook" → ra "laptop". Autocomplete `bool_prefix`; "did you mean" = term suggester.
+- **6.5 Zero-result fallback** — query chính `operator=and`; 0 hit → thử lại `or`+`fuzziness=AUTO`
+  (`fallback:"fuzzy"`); vẫn 0 → `did_you_mean` + danh sách phổ biến (`fallback:"suggest"`).
+- **6.6 Multi-tenant** — backend **ép** `term tenant_id` từ `X-Tenant-ID` (context), KHÔNG lấy từ body;
+  create cũng stamp tenant từ context. Negative: tenant A không bao giờ thấy doc tenant B.
+- **6.7 Response** — `_source` chỉ trả field gọn (bỏ `description` — để highlight lo, bỏ `updated_at`);
+  query file có bật search slow log.
+
+Query tham chiếu: `queries/phase6-search-feature.http`. Frontend Phase 6: facet click, autocomplete
+dropdown, highlight, "Tải thêm" (search_after), "did you mean", chọn tenant.
 
 ## Frontend (React + Vite) — Search + Admin CRUD
 

@@ -30,6 +30,7 @@ func (s *Store) Close() { s.Pool.Close() }
 // Product — vừa là row Postgres vừa là document ES (_source). id = ES _id.
 type Product struct {
 	ID          int64     `json:"id"`
+	TenantID    string    `json:"tenant_id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	SKU         string    `json:"sku"`
@@ -53,11 +54,11 @@ func (s *Store) Migrate(ctx context.Context, ddl string) error {
 	return err
 }
 
-const cols = `id, name, description, sku, status, category, brand, price, in_stock, created_at, updated_at`
+const cols = `id, tenant_id, name, description, sku, status, category, brand, price, in_stock, created_at, updated_at`
 
 func scanProduct(row pgx.Row) (Product, error) {
 	var p Product
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.SKU, &p.Status, &p.Category,
+	err := row.Scan(&p.ID, &p.TenantID, &p.Name, &p.Description, &p.SKU, &p.Status, &p.Category,
 		&p.Brand, &p.Price, &p.InStock, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
@@ -70,11 +71,15 @@ func (s *Store) CreateProduct(ctx context.Context, p Product, withOutbox bool) (
 	}
 	defer tx.Rollback(ctx)
 
+	// tenant_id do handler stamp từ context (không lấy từ body). Default 'default' nếu rỗng.
+	if p.TenantID == "" {
+		p.TenantID = "default"
+	}
 	row := tx.QueryRow(ctx, `
-		INSERT INTO products (name, description, sku, status, category, brand, price, in_stock)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		INSERT INTO products (tenant_id, name, description, sku, status, category, brand, price, in_stock)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING `+cols,
-		p.Name, p.Description, p.SKU, p.Status, p.Category, p.Brand, p.Price, p.InStock)
+		p.TenantID, p.Name, p.Description, p.SKU, p.Status, p.Category, p.Brand, p.Price, p.InStock)
 	created, err := scanProduct(row)
 	if err != nil {
 		return Product{}, err
@@ -91,20 +96,24 @@ func (s *Store) CreateProduct(ctx context.Context, p Product, withOutbox bool) (
 }
 
 // UpdateProduct — cập nhật (bump updated_at) + outbox trong cùng tx.
-func (s *Store) UpdateProduct(ctx context.Context, p Product, withOutbox bool) (Product, error) {
+// tenantID ép access boundary: tenant này không sửa được product tenant khác.
+func (s *Store) UpdateProduct(ctx context.Context, tenantID string, p Product, withOutbox bool) (Product, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return Product{}, err
 	}
 	defer tx.Rollback(ctx)
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	row := tx.QueryRow(ctx, `
 		UPDATE products
 		SET name=$2, description=$3, sku=$4, status=$5, category=$6, brand=$7,
 		    price=$8, in_stock=$9, updated_at=now()
-		WHERE id=$1
+		WHERE id=$1 AND tenant_id=$10
 		RETURNING `+cols,
-		p.ID, p.Name, p.Description, p.SKU, p.Status, p.Category, p.Brand, p.Price, p.InStock)
+		p.ID, p.Name, p.Description, p.SKU, p.Status, p.Category, p.Brand, p.Price, p.InStock, tenantID)
 	updated, err := scanProduct(row)
 	if err != nil {
 		return Product{}, err // pgx.ErrNoRows nếu id không tồn tại
@@ -121,14 +130,18 @@ func (s *Store) UpdateProduct(ctx context.Context, p Product, withOutbox bool) (
 }
 
 // DeleteProduct — xóa row + outbox op=delete (version = thời điểm xóa) trong cùng tx.
-func (s *Store) DeleteProduct(ctx context.Context, id int64, withOutbox bool) error {
+// tenantID ép access boundary: tenant này không xóa được product tenant khác.
+func (s *Store) DeleteProduct(ctx context.Context, tenantID string, id int64, withOutbox bool) error {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
-	ct, err := tx.Exec(ctx, `DELETE FROM products WHERE id=$1`, id)
+	ct, err := tx.Exec(ctx, `DELETE FROM products WHERE id=$1 AND tenant_id=$2`, id, tenantID)
 	if err != nil {
 		return err
 	}

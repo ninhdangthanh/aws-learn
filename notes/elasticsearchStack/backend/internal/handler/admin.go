@@ -16,7 +16,8 @@ import (
 // Dùng SQL (không phải ES) để create/update/delete phản ánh NGAY, không chờ worker.
 func (h *Handler) list(c *gin.Context) {
 	limit := atoiDefault(c.Query("limit"), 50)
-	ps, err := h.st.ListProducts(c, limit)
+	tenant := tenantOf(c)
+	ps, err := h.st.ListProducts(c, tenant, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -24,7 +25,7 @@ func (h *Handler) list(c *gin.Context) {
 	if ps == nil {
 		ps = []store.Product{}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": ps, "count": len(ps)})
+	c.JSON(http.StatusOK, gin.H{"items": ps, "count": len(ps), "tenant": tenant})
 }
 
 // esUpdatedAt — chuỗi updated_at đúng như lúc index (ES lưu _source verbatim).

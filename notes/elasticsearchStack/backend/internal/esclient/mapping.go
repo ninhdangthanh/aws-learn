@@ -9,14 +9,54 @@ import (
 )
 
 // mappingBody — mapping tường minh cho products (backend làm chủ mapping).
+//
+// Phase 6:
+//   - analysis.filter.product_synonyms (synonym_graph) gắn vào SEARCH analyzer
+//     "synonym_search" -> synonym áp ở search-time, sửa danh sách chỉ cần
+//     đóng/mở index (close/open), KHÔNG phải reindex document (6.4).
+//   - name/description dùng search_analyzer="synonym_search" (index vẫn analyzer chuẩn).
+//   - name.suggest kiểu search_as_you_type -> autocomplete /suggest (6.4).
+//   - tenant_id keyword -> access filter multi-tenant (6.6).
 func mappingBody() []byte {
 	return []byte(`{
-	  "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+	  "settings": {
+	    "number_of_shards": 1,
+	    "number_of_replicas": 0,
+	    "analysis": {
+	      "filter": {
+	        "product_synonyms": {
+	          "type": "synonym_graph",
+	          "synonyms": [
+	            "laptop, notebook",
+	            "phone, smartphone, mobile",
+	            "tv, television",
+	            "headphone, headset, earphone",
+	            "fridge, refrigerator"
+	          ]
+	        }
+	      },
+	      "analyzer": {
+	        "synonym_search": {
+	          "type": "custom",
+	          "tokenizer": "standard",
+	          "filter": ["lowercase", "product_synonyms"]
+	        }
+	      }
+	    }
+	  },
 	  "mappings": {
 	    "properties": {
 	      "id":          { "type": "long" },
-	      "name":        { "type": "text", "fields": { "raw": { "type": "keyword" } } },
-	      "description": { "type": "text" },
+	      "tenant_id":   { "type": "keyword" },
+	      "name": {
+	        "type": "text",
+	        "search_analyzer": "synonym_search",
+	        "fields": {
+	          "raw":     { "type": "keyword" },
+	          "suggest": { "type": "search_as_you_type" }
+	        }
+	      },
+	      "description": { "type": "text", "search_analyzer": "synonym_search" },
 	      "sku":         { "type": "keyword" },
 	      "status":      { "type": "keyword" },
 	      "category":    { "type": "keyword" },

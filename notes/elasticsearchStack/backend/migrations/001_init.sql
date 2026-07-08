@@ -30,3 +30,10 @@ CREATE TABLE IF NOT EXISTS outbox (
 -- Partial index: worker chỉ quét dòng chưa xử lý -> rẻ dù bảng phình to.
 CREATE INDEX IF NOT EXISTS outbox_unprocessed_idx
   ON outbox (id) WHERE processed_at IS NULL;
+
+-- Phase 6 — multi-tenant (6.6): mỗi product thuộc 1 tenant.
+-- Access filter được backend ÉP từ context đăng nhập (header X-Tenant-ID),
+-- KHÔNG bao giờ lấy tenant từ request body -> user tenant A không thấy data tenant B.
+-- Idempotent: ADD COLUMN IF NOT EXISTS chạy lại an toàn ở mỗi lần khởi động.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+CREATE INDEX IF NOT EXISTS products_tenant_idx ON products (tenant_id);

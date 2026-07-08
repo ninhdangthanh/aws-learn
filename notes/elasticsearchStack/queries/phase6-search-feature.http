@@ -1,0 +1,159 @@
+### Phase 6 — Search feature API thật (highlight, facet, synonym, suggest, fallback, tenant, _source)
+### Chạy trong Kibana Dev Tools hoặc REST client, TRÊN ALIAS `products` do backend làm chủ.
+### Điều kiện: backend Phase 6 đã chạy (mapping mới: synonym search_analyzer + name.suggest + tenant_id).
+###   1) go run .            # tạo alias + mapping mới nếu index chưa có
+###   2) POST /admin/reindex # nếu index cũ (Phase 5) -> tạo lại với mapping Phase 6
+###   3) POST /admin/backfill# nạp lại _source từ Postgres (điền tenant_id + name.suggest)
+### Tương đương gọi qua backend: GET http://localhost:8090/search?...  (kèm header X-Tenant-ID)
+@es = http://localhost:9200
+
+### 6.1 — Highlight: trả đoạn khớp bọc <em>. Backend đổi pre/post tag thành sentinel
+### rồi escape HTML nguyên đoạn trước khi thay <em> (chống XSS). Ở đây xem tag mặc định.
+GET {{es}}/products/_search
+{
+  "query": { "multi_match": { "query": "laptop", "fields": [ "name^3", "description" ] } },
+  "highlight": {
+    "fields": { "name": { "number_of_fragments": 0 }, "description": { "fragment_size": 140, "number_of_fragments": 1 } }
+  }
+}
+
+### 6.2a — track_total_hits mặc định (false=cap ~10000): total.relation = "gte" khi vượt ngưỡng
+GET {{es}}/products/_search
+{
+  "track_total_hits": false,
+  "query": { "match_all": {} }
+}
+
+### 6.2b — track_total_hits: true -> tổng CHÍNH XÁC (relation "eq"), đổi lại tốn hơn khi index lớn
+GET {{es}}/products/_search
+{
+  "track_total_hits": true,
+  "size": 0,
+  "query": { "match_all": {} }
+}
+
+### 6.2c — search_after: phân trang sâu ổn định. sort = _score desc + tie-breaker id asc.
+### Trang 1: lấy `sort` của hit cuối rồi dán vào search_after cho trang 2.
+GET {{es}}/products/_search
+{
+  "size": 5,
+  "track_total_hits": true,
+  "sort": [ { "_score": "desc" }, { "id": "asc" } ],
+  "query": { "multi_match": { "query": "pro", "fields": [ "name^3", "description" ] } }
+}
+
+### 6.2c-page2 — dán sort values của hit cuối trang 1 vào đây (ví dụ [1.83, 12])
+GET {{es}}/products/_search
+{
+  "size": 5,
+  "sort": [ { "_score": "desc" }, { "id": "asc" } ],
+  "search_after": [ 1.83, 12 ],
+  "query": { "multi_match": { "query": "pro", "fields": [ "name^3", "description" ] } }
+}
+
+### 6.3a — Facet brand + category bằng terms agg (song song với hits)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "aggs": {
+    "brand":    { "terms": { "field": "brand",    "size": 20 } },
+    "category": { "terms": { "field": "category", "size": 20 } }
+  }
+}
+
+### 6.3b — post_filter: chọn brand=Apple -> HITS chỉ Apple NHƯNG facet brand VẪN đủ mọi brand.
+### (filter thường trong query.bool.filter sẽ cắt cả agg; post_filter chỉ cắt hits.)
+GET {{es}}/products/_search
+{
+  "query": { "match_all": {} },
+  "aggs": { "brand": { "terms": { "field": "brand", "size": 20 } } },
+  "post_filter": { "term": { "brand": "Apple" } }
+}
+
+### 6.4a — Synonym search-time: search "notebook" ra sản phẩm gắn "laptop".
+### synonym_graph nằm ở search_analyzer -> sửa synonym KHÔNG cần reindex document
+### (chỉ cần close/open index để nạp lại settings). Không match_phrase khi có synonym multi-word.
+GET {{es}}/products/_search
+{
+  "query": { "match": { "name": "notebook" } }
+}
+
+### 6.4b — Autocomplete bằng search_as_you_type (name.suggest) + multi_match bool_prefix
+GET {{es}}/products/_search
+{
+  "size": 8,
+  "_source": [ "name" ],
+  "query": {
+    "multi_match": {
+      "query": "mac",
+      "type": "bool_prefix",
+      "fields": [ "name.suggest", "name.suggest._2gram", "name.suggest._3gram" ]
+    }
+  }
+}
+
+### 6.4c — "Did you mean" bằng term suggester (gõ sai -> gợi ý sửa)
+GET {{es}}/products/_search
+{
+  "size": 0,
+  "suggest": {
+    "did_you_mean": { "text": "labtop", "term": { "field": "name", "suggest_mode": "always" } }
+  }
+}
+
+### 6.5a — Query chính operator=and (chặt): mọi từ phải khớp -> dễ ra 0 hit
+GET {{es}}/products/_search
+{
+  "query": { "multi_match": { "query": "wireless gaming pro", "fields": [ "name^3", "description" ], "operator": "and" } }
+}
+
+### 6.5b — Fallback khi 0 hit: nới lỏng bằng operator=or + fuzziness=AUTO + minimum_should_match
+GET {{es}}/products/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "wireless gaming pro", "fields": [ "name^3", "description" ],
+      "operator": "or", "fuzziness": "AUTO", "minimum_should_match": "2<70%"
+    }
+  }
+}
+
+### 6.6 — Multi-tenant access filter: backend ÉP term tenant_id từ context (header X-Tenant-ID).
+### User tenant "acme" query -> LUÔN kèm filter dưới đây, không bao giờ thấy doc tenant khác.
+GET {{es}}/products/_search
+{
+  "query": {
+    "bool": {
+      "must":   [ { "multi_match": { "query": "phone", "fields": [ "name^3", "description" ] } } ],
+      "filter": [ { "term": { "tenant_id": "acme" } } ]
+    }
+  }
+}
+
+### 6.6-negative — cùng từ khóa nhưng tenant khác -> KHÔNG thấy doc của "acme"
+GET {{es}}/products/_search
+{
+  "query": {
+    "bool": {
+      "must":   [ { "multi_match": { "query": "phone", "fields": [ "name^3", "description" ] } } ],
+      "filter": [ { "term": { "tenant_id": "globex" } } ]
+    }
+  }
+}
+
+### 6.7 — _source filtering: list chỉ trả field gọn (id, name, price, brand...) -> payload nhỏ,
+### description nặng để highlight lo. Kèm sort ổn định như search thật.
+GET {{es}}/products/_search
+{
+  "size": 10,
+  "_source": [ "id", "name", "price", "brand", "category", "status", "in_stock", "sku", "created_at" ],
+  "sort": [ { "_score": "desc" }, { "id": "asc" } ],
+  "query": { "multi_match": { "query": "laptop", "fields": [ "name^3", "description" ] } }
+}
+
+### 6.7-opt — bật/tắt search slow log (quan sát query chậm). Ngưỡng thấp để mọi query đều log (demo).
+PUT {{es}}/products/_settings
+{
+  "index.search.slowlog.threshold.query.warn": "10ms",
+  "index.search.slowlog.threshold.fetch.warn": "10ms"
+}
