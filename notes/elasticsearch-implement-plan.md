@@ -112,10 +112,19 @@ Nghiệm thu: đọc được kết quả agg và giải thích bucket vs metric
 
 ### 5.1 Backend + source of truth
 
-- [ ] Backend nhỏ (Go/Bun) với PostgreSQL là source of truth cho `products`.
+- [ ] Backend nhỏ (**Go + Gin**, chốt) với PostgreSQL là source of truth cho `products`.
 - [ ] Bảng `products` (id, name, description, price, status, category, created_at, updated_at).
 - [ ] Endpoint `GET /search?q=...&category=...` → query ES → trả kết quả (KHÔNG query SQL để search).
+- [ ] Endpoint write CRUD: `POST /products` (create), `PUT /products/{id}` (update), `DELETE /products/{id}` — ghi Postgres + outbox trong cùng transaction.
 - [ ] Dùng **id của Postgres làm `_id` trong ES** → index lại luôn idempotent, không tạo bản trùng.
+
+### 5.1b Frontend (React + Vite) — chốt scope: Search UI + CRUD admin
+
+FE không có trong plan gốc; bổ sung theo quyết định để demo trực quan.
+
+- [ ] Trang **Search**: box tìm kiếm, filter (category/status/price), facet count, highlight, autocomplete (Phase 6).
+- [ ] Trang **Admin CRUD**: form Create / Update / Delete product → gọi `POST/PUT/DELETE` backend.
+- [ ] Demo consistency nhìn thấy được: tạo/sửa/xóa product ở Admin → Search phản ánh lại; tắt ES → thấy lệch; bật ES → outbox worker tự hồi phục.
 
 ### 5.2 Bước 1 — Dual write (làm trước để thấy vấn đề)
 

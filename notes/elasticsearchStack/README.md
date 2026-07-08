@@ -11,8 +11,8 @@ Stack: **ES 8.14 + Kibana** (Docker) → **Go + Gin** backend (Phase 5-6) → **
 docker-compose.yml   ES (9200) + Kibana (5601). Local học, security tắt.
 queries/             File .http / _bulk theo từng phase (chạy bằng curl hoặc Kibana Dev Tools).
 scripts/             Script seed / verify.
-backend/             (Phase 5+) Go + Gin: /search, dual-write → outbox worker → alias reindex.
-frontend/            (Phase 6+) React + Vite: search UI (facet, highlight, autocomplete).
+backend/             (Phase 5+) Go + Gin: /search + CRUD (POST/PUT/DELETE), dual-write → outbox worker → alias reindex.
+frontend/            (Phase 5+) React + Vite: Search UI (facet, highlight, autocomplete) + Admin CRUD (create/update/delete).
 ```
 
 ## Tiến độ (commit theo phase)
