@@ -1,0 +1,110 @@
+### Phase 3 — Query DSL (phần quan trọng nhất)
+### Chạy trong Kibana Dev Tools hoặc REST client. Seed trước: ./scripts/seed-products.sh
+@es = http://localhost:9200
+
+### 1. match full-text trên name -> quan sát _score (được analyze, không phân biệt hoa/thường)
+GET {{es}}/products/_search
+{
+  "query": { "match": { "name": "pro laptop" } }
+}
+
+### 2. term trên status (keyword) -> KHÔNG analyze, phải khớp chính xác
+# "active" khớp; thử đổi thành "Active" sẽ ra 0 hit -> đó là khác biệt text vs keyword
+GET {{es}}/products/_search
+{
+  "size": 3,
+  "query": { "term": { "status": "active" } }
+}
+
+### 2b. Sai lầm kinh điển: match trên field text bằng cả câu vs term trên keyword
+GET {{es}}/products/_search
+{
+  "query": { "term": { "brand": "Apple" } }
+}
+
+### 3. bool: must (tính điểm) + filter (không tính điểm, cache được) + range giá
+# must -> query context (ảnh hưởng _score). filter/range -> filter context (yes/no).
+GET {{es}}/products/_search
+{
+  "query": {
+    "bool": {
+      "must":   [ { "match": { "description": "laptop" } } ],
+      "filter": [
+        { "term":  { "status": "active" } },
+        { "range": { "price": { "gte": 1000, "lte": 2000 } } }
+      ]
+    }
+  }
+}
+
+### 4. multi_match với boost name^3, description -> khớp ở name quan trọng hơn
+GET {{es}}/products/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "pro",
+      "fields": [ "name^3", "description" ]
+    }
+  }
+}
+
+### 5. match_phrase -> cụm từ đúng thứ tự ("noise cancelling" liền nhau)
+GET {{es}}/products/_search
+{
+  "query": { "match_phrase": { "description": "noise cancelling" } }
+}
+
+### 6. fuzziness AUTO -> chịu được typo ("labtop" -> laptop, "iphon" -> iphone)
+GET {{es}}/products/_search
+{
+  "query": { "match": { "name": { "query": "labtop", "fuzziness": "AUTO" } } }
+}
+
+### 7. explain: true -> đọc vì sao document được điểm đó (TF/IDF/field length norm)
+GET {{es}}/products/_search
+{
+  "explain": true,
+  "size": 1,
+  "query": { "match": { "name": "macbook pro" } }
+}
+
+### Tie-breaker: KHÔNG dùng _id để sort — ES 8.x cấm fielddata trên _id.
+### Dùng field keyword duy nhất (ở đây là `sku`) làm tie-breaker cho sort ổn định.
+
+### 8a. Phân trang from/size (đơn giản, nhưng deep paging tốn kém)
+GET {{es}}/products/_search
+{
+  "from": 0,
+  "size": 5,
+  "sort": [ { "price": "desc" }, { "sku": "asc" } ],
+  "query": { "match_all": {} }
+}
+
+### 8b. search_after: phân trang sâu ổn định (dùng sort values của hit cuối trang trước)
+# Lấy giá trị sort của document cuối ở 8a rồi dán vào search_after.
+GET {{es}}/products/_search
+{
+  "size": 5,
+  "sort": [ { "price": "desc" }, { "sku": "asc" } ],
+  "search_after": [ 1299.0, "HP-SPECTRE" ],
+  "query": { "match_all": {} }
+}
+
+### 9. Query hoàn chỉnh: search + filter + sort + paginate (nghiệm thu Phase 3)
+# tìm "pro" ở name/description, chỉ hàng active còn stock, giá 200-2000,
+# sort theo giá giảm dần với tie-breaker sku, lấy trang đầu 5 kết quả.
+GET {{es}}/products/_search
+{
+  "size": 5,
+  "sort": [ { "price": "desc" }, { "sku": "asc" } ],
+  "query": {
+    "bool": {
+      "must":   [ { "multi_match": { "query": "pro", "fields": [ "name^3", "description" ] } } ],
+      "filter": [
+        { "term": { "status": "active" } },
+        { "term": { "in_stock": true } },
+        { "range": { "price": { "gte": 200, "lte": 2000 } } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,67 @@
+### Phase 2 — Index, mapping, CRUD document
+### Chạy trong Kibana Dev Tools (bỏ tiền tố http://localhost:9200) hoặc bằng REST client.
+@es = http://localhost:9200
+
+### 0. Dọn index cũ nếu chạy lại (idempotent)
+DELETE {{es}}/products
+
+### 1. Tạo index `products` với mapping tường minh
+# text  -> full-text search (được analyze): name, description
+# keyword -> lọc / group / sort chính xác (không analyze): status, category, sku, brand
+# multi-field name.raw (keyword) -> để sort/aggregate trên name
+# scaled_float cho price (tiền tệ), date cho created_at
+PUT {{es}}/products
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "text",
+        "fields": { "raw": { "type": "keyword" } }
+      },
+      "description": { "type": "text" },
+      "sku":       { "type": "keyword" },
+      "status":    { "type": "keyword" },
+      "category":  { "type": "keyword" },
+      "brand":     { "type": "keyword" },
+      "price":     { "type": "scaled_float", "scaling_factor": 100 },
+      "in_stock":  { "type": "boolean" },
+      "created_at":{ "type": "date" }
+    }
+  }
+}
+
+### 2. Index 1 document, dùng id của "DB" làm _id (idempotent — index lại không tạo bản trùng)
+PUT {{es}}/products/_doc/1
+{
+  "name": "MacBook Pro 14 M3",
+  "description": "Powerful laptop for developers with M3 chip and 18GB RAM",
+  "sku": "APPLE-MBP14-M3",
+  "status": "active",
+  "category": "laptop",
+  "brand": "Apple",
+  "price": 1999.00,
+  "in_stock": true,
+  "created_at": "2026-01-15T09:00:00Z"
+}
+
+### 3. GET theo id
+GET {{es}}/products/_doc/1
+
+### 4. UPDATE (partial) — chỉ đổi price + in_stock
+POST {{es}}/products/_update/1
+{
+  "doc": { "price": 1899.00, "in_stock": false }
+}
+
+### 5. DELETE theo id (bỏ comment để chạy)
+# DELETE {{es}}/products/_doc/1
+
+### 6. Xem lại mapping (kể cả field tự sinh nếu có)
+GET {{es}}/products/_mapping
+
+### 7. Đếm document
+GET {{es}}/products/_count

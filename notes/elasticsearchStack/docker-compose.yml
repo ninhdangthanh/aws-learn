@@ -1,0 +1,36 @@
+# notes/elasticsearchStack/docker-compose.yml
+# Bản LOCAL HỌC — KHÔNG dùng cho production.
+# Security (TLS + password) bị tắt cho nhẹ; production tuyệt đối không tắt.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: es-learn
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false      # chỉ local
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.0
+    container_name: kibana-learn
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+volumes:
+  es_data:
