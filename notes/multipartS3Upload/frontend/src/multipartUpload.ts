@@ -53,6 +53,20 @@ export async function multipartUpload(file: File, opts: UploadOptions = {}) {
       presigned.map((p: PresignedPart) => [p.partNumber, p.url]),
     );
 
+    // Resolve the URL for a part, optionally forcing a fresh presign. Presigned
+    // URLs expire (PRESIGN_EXPIRY_SECONDS, default 15 min); on a slow/large
+    // upload the batch we fetched up front can go stale before a late part —
+    // or a retry — reaches it, so on retry we always re-presign that one part.
+    const resolveUrl = async (partNumber: number, forceRefresh: boolean): Promise<string> => {
+      const cached = urlByPart.get(partNumber);
+      if (cached && !forceRefresh) return cached;
+      const { parts } = await api.presignParts(key, uploadId, [partNumber]);
+      const fresh = parts[0]?.url;
+      if (!fresh) throw new Error(`could not presign part ${partNumber}`);
+      urlByPart.set(partNumber, fresh);
+      return fresh;
+    };
+
     // Shared progress accounting across all concurrent parts.
     const loadedPerPart = new Array<number>(plans.length).fill(0);
     const total = file.size;
@@ -75,15 +89,18 @@ export async function multipartUpload(file: File, opts: UploadOptions = {}) {
         if (idx >= plans.length) return;
 
         const plan = plans[idx];
-        const url = urlByPart.get(plan.partNumber);
-        if (!url) throw new Error(`missing presigned URL for part ${plan.partNumber}`);
-
         opts.onPartStatus?.(plan.partNumber, "uploading");
         const blob = file.slice(plan.start, plan.end);
-        const etag = await putPartWithRetry(url, blob, maxRetries, opts.signal, (loaded) => {
-          loadedPerPart[idx] = loaded;
-          emitProgress();
-        });
+        const etag = await putPartWithRetry(
+          (forceRefresh) => resolveUrl(plan.partNumber, forceRefresh),
+          blob,
+          maxRetries,
+          opts.signal,
+          (loaded) => {
+            loadedPerPart[idx] = loaded;
+            emitProgress();
+          },
+        );
 
         loadedPerPart[idx] = plan.end - plan.start;
         emitProgress();
@@ -103,9 +120,14 @@ export async function multipartUpload(file: File, opts: UploadOptions = {}) {
   }
 }
 
-/** PUT a single part with retries + exponential backoff. Returns the ETag. */
+/**
+ * PUT a single part with retries + exponential backoff. Returns the ETag.
+ * `getUrl(forceRefresh)` yields the target URL: the cached one on the first
+ * attempt, and a freshly presigned one on every retry (so an expired signature
+ * — HTTP 403 SignatureDoesNotMatch/AccessDenied — is recovered automatically).
+ */
 async function putPartWithRetry(
-  url: string,
+  getUrl: (forceRefresh: boolean) => Promise<string>,
   blob: Blob,
   maxRetries: number,
   signal: AbortSignal | undefined,
@@ -114,6 +136,7 @@ async function putPartWithRetry(
   let attempt = 0;
   while (true) {
     try {
+      const url = await getUrl(attempt > 0); // re-presign on every retry
       return await putPart(url, blob, signal, onProgress);
     } catch (err) {
       if (signal?.aborted) throw err;
