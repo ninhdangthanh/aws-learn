@@ -184,7 +184,9 @@
     </div>
 
     <!-- SimpleWebAuthn browser library -->
-    <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+    <!-- Ghim major v9 để khớp @simplewebauthn/server@9 ở backend.
+         Từ v11 startRegistration/startAuthentication đổi sang { optionsJSON }. -->
+    <script src="https://unpkg.com/@simplewebauthn/browser@9/dist/bundle/index.umd.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

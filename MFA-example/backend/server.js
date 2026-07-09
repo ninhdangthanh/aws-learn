@@ -10,6 +10,7 @@ const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
+const { isoBase64URL } = require('@simplewebauthn/server/helpers');
 
 const app = express();
 app.use(cors());
@@ -168,7 +169,7 @@ app.post('/api/mfa/verify', (req, res) => {
 // --- Passkeys / WebAuthn ---
 
 // Generate Registration Options (Setup Phase)
-app.post('/api/passkey/generate-registration-options', (req, res) => {
+app.post('/api/passkey/generate-registration-options', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -179,7 +180,7 @@ app.post('/api/passkey/generate-registration-options', (req, res) => {
 
     const user = users[username];
 
-    const options = generateRegistrationOptions({
+    const options = await generateRegistrationOptions({
         rpName,
         rpID,
         userID: user.id,
@@ -250,17 +251,17 @@ app.post('/api/passkey/verify-registration', async (req, res) => {
 });
 
 // Generate Authentication Options (Login Phase)
-app.post('/api/passkey/generate-authentication-options', (req, res) => {
+app.post('/api/passkey/generate-authentication-options', async (req, res) => {
     const { tempToken } = req.body;
     const username = tempSessions[tempToken];
-    
+
     if (!username) {
         return res.status(401).json({ error: 'Invalid or expired temporary session' });
     }
-    
+
     const user = users[username];
 
-    const options = generateAuthenticationOptions({
+    const options = await generateAuthenticationOptions({
         rpID,
         allowCredentials: user.passkeys.map(passkey => ({
             id: passkey.credentialID,
@@ -285,7 +286,8 @@ app.post('/api/passkey/verify-authentication', async (req, res) => {
     }
     
     const user = users[username];
-    const passkey = user.passkeys.find(p => p.credentialID.toString('base64url') === response.id);
+    // credentialID là Uint8Array; .toString('base64url') bỏ qua tham số nên không bao giờ khớp.
+    const passkey = user.passkeys.find(p => isoBase64URL.fromBuffer(p.credentialID) === response.id);
     if (!passkey) {
         return res.status(400).json({ error: 'Could not find passkey for user' });
     }
