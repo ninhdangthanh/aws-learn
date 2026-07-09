@@ -10,6 +10,11 @@
 
 **Hook = một lệnh shell được Claude Code tự chạy tại một thời điểm định trước** trong vòng đời session (trước khi gọi tool, sau khi gọi tool, khi bạn gửi prompt, khi Claude trả lời xong...).
 
+Hook là một cái middleware đứng giưã claude code session và terminal, khi claude chạy thứ thao tác gì đó được định nghĩa sẵn trong hook, ví dụ chmod hay sửa file, ghi file có dữ liệu nhạy cảm thì hook sẽ được trigger, force claude không được làm vậy và sửa theo kiểu khác, hoặc hook cũng có thể bơm context cho claude code session? đúng không
+
+
+"Hook là các script tự viết, hoạt động như middleware giữa model và việc thực thi tool call. Mình khai báo trong settings.json là event nào + tool nào thì chạy script nào. Script nhận thông tin tool call qua stdin JSON và quyết định: PreToolUse có thể chặn hẳn thao tác kèm lý do để model làm cách khác; PostToolUse chạy sau nên không hủy được, nhưng báo lỗi ngược lại để model tự sửa; SessionStart thì bơm trạng thái môi trường vào context đầu session. Điểm mấu chốt: nó là code deterministic nằm ngoài model, nên khác với dặn dò trong prompt — model không thể quên hay lách."
+
 Điểm mấu chốt: **harness chạy hook, không phải Claude**. Nên hook là cách *duy nhất* để đảm bảo một hành vi **luôn luôn** xảy ra — không phụ thuộc vào việc Claude có "nhớ" làm hay không.
 
 > Hook là tính năng của **Claude Code (CLI)**. Bản web claude.ai không có hook.

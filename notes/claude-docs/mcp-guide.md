@@ -96,6 +96,39 @@ Claude sẽ tự gọi tool `mcp__docker__list_containers`, `mcp__docker__get_lo
 
 > Ghi chú: tên package `mcp-server-docker` ở trên chỉ là minh họa. Khi triển khai thật, chọn một Docker MCP server cụ thể (kiểm tra README của nó để biết `command`/`args`/`env` chính xác).
 
+## 3. Ví dụ thực tế: gắn trình duyệt Firefox (Playwright MCP)
+
+Mục tiêu: cho Claude mở trình duyệt, search, click, đọc nội dung trang (collect data).
+
+### Cài đặt (đã làm 2026-07-09)
+
+```bash
+# Đăng ký server ở user scope (dùng cho mọi project)
+claude mcp add playwright -s user -- npx -y @playwright/mcp@latest --browser firefox
+
+# Tải Firefox build của Playwright (nếu chưa có trong ~/Library/Caches/ms-playwright/)
+npx playwright install firefox
+```
+
+Restart session → `/mcp` để kiểm tra. Tool xuất hiện dạng `mcp__playwright__browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`...
+
+### Hiện cửa sổ hay chạy ngầm?
+
+- **Mặc định: headed** — cửa sổ Firefox mở lên, bạn nhìn thấy Claude thao tác trực tiếp.
+- Muốn **chạy ngầm (headless)**: thêm flag `--headless` vào args của server.
+- Đây là **Firefox build riêng của Playwright**, không phải Firefox bạn cài — không dùng profile/bookmark/login cá nhân. Playwright MCP tự giữ một profile riêng nên cookie/login trong đó vẫn persist giữa các session (thêm `--isolated` nếu muốn sạch mỗi lần).
+
+### Flow khi bảo Claude "search X"
+
+1. `browser_navigate` → mở trang search (Google/DuckDuckGo).
+2. `browser_snapshot` → đọc accessibility tree của trang kết quả (không phải screenshot, rất ít token).
+3. Chọn kết quả uy tín → `browser_click` vào link.
+4. `browser_snapshot`/`browser_evaluate` trên trang đích → trích xuất dữ liệu, tổng hợp trả lời.
+
+> Lưu ý: nếu chỉ cần "search và tóm tắt", tool `WebSearch`/`WebFetch` có sẵn nhanh và rẻ hơn nhiều. Browser MCP đáng dùng khi cần **tương tác** (login, form, trang render bằng JS, test UI).
+
+---
+
 ### Cách thêm MCP nhanh bằng CLI
 
 Ngoài sửa tay `settings.json`, có thể dùng lệnh:
