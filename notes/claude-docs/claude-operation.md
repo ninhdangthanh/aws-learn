@@ -89,6 +89,7 @@ Vì các backend nằm ở nhiều repo khác nhau → dùng **global skill** (`
 - `~/.claude/settings.json` (global) và `<repo>/.claude/settings.json` (project) + `settings.local.json`.
 - **Hooks**: script tự chạy khi có sự kiện (trước/sau tool, khi stop...). Đây là cách duy nhất để ép hành vi tự động kiểu "mỗi khi X thì làm Y" — vì *harness* chạy hook, không phải Claude tự nhớ.
 - Ví dụ trong máy này: hook rewrite `git status` → `rtk git status` để tiết kiệm token.
+- Chi tiết các sự kiện + cách viết hook → xem [`hooks-guide.md`](./hooks-guide.md).
 
 ### Permissions
 - Quy định lệnh Bash / tool nào được phép chạy không cần hỏi.
@@ -132,6 +133,7 @@ Instruction trong CLAUDE.md **override** hành vi mặc định của Claude.
 
 ## Xem thêm (các chủ đề đã tách file)
 
+- **Hooks — sự kiện, input/output, ví dụ** → [`hooks-guide.md`](./hooks-guide.md)
 - **MCP — kết nối tool ngoài + ví dụ Docker** → [`mcp-guide.md`](./mcp-guide.md)
 - **Review PR theo Jira & test web/React** → [`review-and-test-pr.md`](./review-and-test-pr.md)
 - **Viết skills & planning cho source code** → [`writing-skills-and-planning.md`](./writing-skills-and-planning.md)

@@ -126,4 +126,4 @@ Không phải task nào cũng cần plan. Chọn theo độ phức tạp & rủi
 | Kiến thức/thủ tục chuyên đề, chỉ cần lúc làm việc đó | **Skill** |
 | Hướng giải cho 1 task cụ thể (dùng xong bỏ) | **Plan mode** (ephemeral) |
 | Điều muốn Claude nhớ lâu (sở thích, quyết định) | Memory |
-| Hành vi tự động "mỗi lần X thì Y" | **Hook** trong `settings.json` (không phải trí nhớ/skill) |
+| Hành vi tự động "mỗi lần X thì Y" | **Hook** trong `settings.json` (không phải trí nhớ/skill) → [`hooks-guide.md`](./hooks-guide.md) |

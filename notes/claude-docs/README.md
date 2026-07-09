@@ -5,6 +5,7 @@ Bộ note cá nhân về cách vận hành & dùng Claude Code hiệu quả. Chi
 | File | Nội dung |
 |------|----------|
 | [`claude-operation.md`](./claude-operation.md) | **Cơ chế nền**: file nào auto-load, `@import`, skills global/project, settings/hooks/permissions, memory, plan mode, thứ tự ưu tiên. |
+| [`hooks-guide.md`](./hooks-guide.md) | **Hooks**: các sự kiện (`PreToolUse`, `Stop`...), hook nhận/trả dữ liệu ra sao, ví dụ format & chặn commit, lưu ý bảo mật. |
 | [`mcp-guide.md`](./mcp-guide.md) | **MCP** là gì (kết nối tool ngoài), tên tool `mcp__...`, ví dụ gắn MCP server Docker + bảo mật. |
 | [`review-and-test-pr.md`](./review-and-test-pr.md) | **Review PR theo ticket Jira** (3 cách: `gh` + dán, Atlassian MCP, GitHub Action) và **test trực tiếp web/React** qua Playwright MCP. |
 | [`writing-skills-and-planning.md`](./writing-skills-and-planning.md) | **Cách viết skill** (frontmatter, description, progressive disclosure, test) và **planning** cho task source code. |
@@ -13,6 +14,7 @@ Bộ note cá nhân về cách vận hành & dùng Claude Code hiệu quả. Chi
 ## Bắt đầu từ đâu?
 
 - Mới tìm hiểu Claude Code → đọc `claude-operation.md` rồi `claude-code-workflow.md`.
+- Muốn tự động hóa "mỗi lần X thì làm Y" → `hooks-guide.md`.
 - Muốn gắn tool ngoài (Jira, Docker, browser...) → `mcp-guide.md`.
 - Việc cụ thể đang cần: review PR / test web → `review-and-test-pr.md`.
 - Muốn tự viết skill hoặc plan tốt hơn → `writing-skills-and-planning.md`.
