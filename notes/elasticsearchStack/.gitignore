@@ -1,0 +1,15 @@
+# env
+.env
+*.local
+
+# go
+backend/bin/
+backend/.gocache/
+
+# node / vite
+node_modules/
+dist/
+*.tsbuildinfo
+
+# os
+.DS_Store

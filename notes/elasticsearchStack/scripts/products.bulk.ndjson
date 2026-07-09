@@ -1,0 +1,60 @@
+{"index":{"_id":"1"}}
+{"name":"MacBook Pro 14 M3","description":"Powerful laptop for developers with M3 chip and 18GB RAM","sku":"APPLE-MBP14-M3","status":"active","category":"laptop","brand":"Apple","price":1999.00,"in_stock":true,"created_at":"2026-01-15T09:00:00Z"}
+{"index":{"_id":"2"}}
+{"name":"MacBook Air 13 M2","description":"Thin and light laptop with all day battery life","sku":"APPLE-MBA13-M2","status":"active","category":"laptop","brand":"Apple","price":1099.00,"in_stock":true,"created_at":"2026-01-20T09:00:00Z"}
+{"index":{"_id":"3"}}
+{"name":"Dell XPS 15","description":"Premium Windows laptop with OLED display and RTX graphics","sku":"DELL-XPS15","status":"active","category":"laptop","brand":"Dell","price":1799.00,"in_stock":true,"created_at":"2026-02-01T10:00:00Z"}
+{"index":{"_id":"4"}}
+{"name":"Dell Inspiron 14","description":"Affordable everyday notebook for work and study","sku":"DELL-INS14","status":"active","category":"laptop","brand":"Dell","price":649.00,"in_stock":true,"created_at":"2026-02-05T10:00:00Z"}
+{"index":{"_id":"5"}}
+{"name":"Lenovo ThinkPad X1 Carbon","description":"Business ultrabook with legendary keyboard","sku":"LEN-X1C","status":"active","category":"laptop","brand":"Lenovo","price":1499.00,"in_stock":false,"created_at":"2026-02-10T10:00:00Z"}
+{"index":{"_id":"6"}}
+{"name":"Asus ROG Zephyrus G14","description":"Compact gaming laptop with powerful GPU","sku":"ASUS-G14","status":"active","category":"laptop","brand":"Asus","price":1599.00,"in_stock":true,"created_at":"2026-02-12T10:00:00Z"}
+{"index":{"_id":"7"}}
+{"name":"HP Spectre x360","description":"Convertible notebook with touchscreen and stylus","sku":"HP-SPECTRE","status":"discontinued","category":"laptop","brand":"HP","price":1299.00,"in_stock":false,"created_at":"2025-11-01T10:00:00Z"}
+{"index":{"_id":"8"}}
+{"name":"iPhone 15 Pro","description":"Flagship smartphone with titanium frame and A17 chip","sku":"APPLE-IP15PRO","status":"active","category":"phone","brand":"Apple","price":999.00,"in_stock":true,"created_at":"2026-01-05T08:00:00Z"}
+{"index":{"_id":"9"}}
+{"name":"iPhone 14","description":"Reliable smartphone with great camera and battery","sku":"APPLE-IP14","status":"active","category":"phone","brand":"Apple","price":699.00,"in_stock":true,"created_at":"2025-12-20T08:00:00Z"}
+{"index":{"_id":"10"}}
+{"name":"Samsung Galaxy S24 Ultra","description":"Android flagship phone with S Pen and 200MP camera","sku":"SAMS-S24U","status":"active","category":"phone","brand":"Samsung","price":1199.00,"in_stock":true,"created_at":"2026-01-25T08:00:00Z"}
+{"index":{"_id":"11"}}
+{"name":"Samsung Galaxy A55","description":"Mid range smartphone with solid battery life","sku":"SAMS-A55","status":"active","category":"phone","brand":"Samsung","price":399.00,"in_stock":true,"created_at":"2026-02-15T08:00:00Z"}
+{"index":{"_id":"12"}}
+{"name":"Google Pixel 8 Pro","description":"Smartphone with best in class computational photography","sku":"GOOG-PX8P","status":"active","category":"phone","brand":"Google","price":899.00,"in_stock":false,"created_at":"2025-10-15T08:00:00Z"}
+{"index":{"_id":"13"}}
+{"name":"iPad Pro 11 M4","description":"Powerful tablet with M4 chip and OLED display","sku":"APPLE-IPADP11","status":"active","category":"tablet","brand":"Apple","price":999.00,"in_stock":true,"created_at":"2026-03-01T08:00:00Z"}
+{"index":{"_id":"14"}}
+{"name":"iPad Air 11","description":"Versatile tablet for creativity and productivity","sku":"APPLE-IPADAIR","status":"active","category":"tablet","brand":"Apple","price":599.00,"in_stock":true,"created_at":"2026-03-05T08:00:00Z"}
+{"index":{"_id":"15"}}
+{"name":"Samsung Galaxy Tab S9","description":"Premium Android tablet with AMOLED screen","sku":"SAMS-TABS9","status":"active","category":"tablet","brand":"Samsung","price":799.00,"in_stock":true,"created_at":"2026-03-08T08:00:00Z"}
+{"index":{"_id":"16"}}
+{"name":"Sony WH-1000XM5","description":"Wireless noise cancelling headphone with premium sound","sku":"SONY-XM5","status":"active","category":"headphone","brand":"Sony","price":399.00,"in_stock":true,"created_at":"2026-01-10T08:00:00Z"}
+{"index":{"_id":"17"}}
+{"name":"Apple AirPods Pro 2","description":"Wireless earbuds with active noise cancellation","sku":"APPLE-APP2","status":"active","category":"headphone","brand":"Apple","price":249.00,"in_stock":true,"created_at":"2026-01-12T08:00:00Z"}
+{"index":{"_id":"18"}}
+{"name":"Bose QuietComfort Ultra","description":"Comfortable over ear headphone with immersive audio","sku":"BOSE-QCU","status":"active","category":"headphone","brand":"Bose","price":429.00,"in_stock":false,"created_at":"2025-12-01T08:00:00Z"}
+{"index":{"_id":"19"}}
+{"name":"Sony WF-1000XM5","description":"Compact wireless earbuds with strong noise cancelling","sku":"SONY-WFXM5","status":"active","category":"headphone","brand":"Sony","price":299.00,"in_stock":true,"created_at":"2026-02-20T08:00:00Z"}
+{"index":{"_id":"20"}}
+{"name":"Dell UltraSharp U2723QE","description":"27 inch 4K monitor with USB-C hub for professionals","sku":"DELL-U2723QE","status":"active","category":"monitor","brand":"Dell","price":619.00,"in_stock":true,"created_at":"2026-01-30T08:00:00Z"}
+{"index":{"_id":"21"}}
+{"name":"LG UltraGear 27GP950","description":"27 inch 4K 144Hz gaming monitor with HDMI 2.1","sku":"LG-27GP950","status":"active","category":"monitor","brand":"LG","price":799.00,"in_stock":true,"created_at":"2026-02-25T08:00:00Z"}
+{"index":{"_id":"22"}}
+{"name":"Samsung Odyssey G7","description":"Curved gaming monitor with high refresh rate","sku":"SAMS-G7","status":"discontinued","category":"monitor","brand":"Samsung","price":699.00,"in_stock":false,"created_at":"2025-09-10T08:00:00Z"}
+{"index":{"_id":"23"}}
+{"name":"Logitech MX Master 3S","description":"Ergonomic wireless mouse for power users","sku":"LOGI-MXM3S","status":"active","category":"accessory","brand":"Logitech","price":99.00,"in_stock":true,"created_at":"2026-01-18T08:00:00Z"}
+{"index":{"_id":"24"}}
+{"name":"Logitech MX Keys S","description":"Wireless keyboard with backlit keys and smart illumination","sku":"LOGI-MXKS","status":"active","category":"accessory","brand":"Logitech","price":109.00,"in_stock":true,"created_at":"2026-01-22T08:00:00Z"}
+{"index":{"_id":"25"}}
+{"name":"Keychron K8 Pro","description":"Mechanical keyboard with hot swappable switches","sku":"KEYC-K8PRO","status":"active","category":"accessory","brand":"Keychron","price":109.00,"in_stock":true,"created_at":"2026-02-28T08:00:00Z"}
+{"index":{"_id":"26"}}
+{"name":"Anker 737 Power Bank","description":"High capacity portable charger with fast charging","sku":"ANKR-737","status":"active","category":"accessory","brand":"Anker","price":149.00,"in_stock":true,"created_at":"2026-03-10T08:00:00Z"}
+{"index":{"_id":"27"}}
+{"name":"Microsoft Surface Laptop 6","description":"Sleek Windows laptop with vibrant touchscreen","sku":"MSFT-SL6","status":"active","category":"laptop","brand":"Microsoft","price":1299.00,"in_stock":true,"created_at":"2026-03-12T08:00:00Z"}
+{"index":{"_id":"28"}}
+{"name":"OnePlus 12","description":"Fast Android smartphone with rapid charging","sku":"ONEP-12","status":"active","category":"phone","brand":"OnePlus","price":799.00,"in_stock":true,"created_at":"2026-03-14T08:00:00Z"}
+{"index":{"_id":"29"}}
+{"name":"Sony PlayStation 5 Slim","description":"Next gen game console with fast SSD storage","sku":"SONY-PS5S","status":"active","category":"console","brand":"Sony","price":499.00,"in_stock":false,"created_at":"2025-11-20T08:00:00Z"}
+{"index":{"_id":"30"}}
+{"name":"Nintendo Switch OLED","description":"Portable game console with vivid OLED screen","sku":"NINT-SWOLED","status":"active","category":"console","brand":"Nintendo","price":349.00,"in_stock":true,"created_at":"2025-12-10T08:00:00Z"}

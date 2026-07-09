@@ -33,7 +33,7 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 | [MongoDB F&B Notes](mongo_fnb.md) | Document model, embed/reference, hot document, aggregation, index, sharding, transaction, TTL, change stream |
 | [Production Backend Concepts](production-backend-concepts.md) | Các tình huống production dễ bị hỏi: pagination, idempotency, cache stampede, retry storm, online migration, read replica stale |
 | [Elasticsearch Middle Notes](elasticsearch-middle-notes.md) | Inverted index, analyzer, `text` vs `keyword`, query DSL (query vs filter context), BM25 relevance, aggregation, sync DB→ES, reindex bằng alias, edge case production |
-| [Elasticsearch Stack Implement Plan](elasticsearch-implement-plan.md) | Plan dựng ES + Kibana bằng Docker và thực hành theo phase: index/mapping, query DSL, aggregation, dashboard, sync DB→ES |
+| [Elasticsearch Stack Implement Plan](elasticsearchStack/elasticsearch-implement-plan.md) | Plan dựng ES + Kibana bằng Docker và thực hành theo phase: index/mapping, query DSL, aggregation, dashboard, sync DB→ES |
 
 Concept nên nắm thêm trong nhóm này:
 

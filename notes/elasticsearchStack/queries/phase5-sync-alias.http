@@ -1,0 +1,76 @@
+### Phase 5 — Các thao tác ES phía sau luồng sync (alias, external version, reindex, reconcile)
+### Chạy trong Kibana Dev Tools. Đây là phần ES mà backend Go tự động hóa (internal/esclient).
+### Xem code tương ứng: backend/internal/esclient/*.go
+@es = http://localhost:9200
+
+### 1. Bootstrap alias — app LUÔN đọc/ghi qua alias `products`, không trỏ thẳng index thật.
+### (backend làm ở EnsureIndexAlias) — tạo index thật rồi gắn alias.
+PUT {{es}}/products_v1
+{
+  "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+  "mappings": { "properties": {
+    "id": { "type": "long" }, "name": { "type": "text" }, "updated_at": { "type": "date" }
+  } }
+}
+
+POST {{es}}/_aliases
+{ "actions": [ { "add": { "index": "products_v1", "alias": "products" } } ] }
+
+### 2. Xem index nào đang đứng sau alias (backend: indicesBehindAlias)
+GET {{es}}/_alias/products
+
+### 3. Index doc với EXTERNAL VERSION = updated_at epoch millis.
+### ES chỉ ghi khi version gửi lên > version hiện tại -> chống ghi đè ngược (stale write).
+PUT {{es}}/products/_doc/1?version=1720000000000&version_type=external
+{ "id": 1, "name": "Laptop Pro", "updated_at": "2024-07-03T10:00:00Z" }
+
+### 4. Stale write bị từ chối: gửi lại version CŨ hơn -> ES trả 409 (bản cũ không đè bản mới).
+PUT {{es}}/products/_doc/1?version=1719999999000&version_type=external
+{ "id": 1, "name": "Laptop Pro (bản cũ)", "updated_at": "2024-07-03T09:00:00Z" }
+
+### 5. Version MỚI hơn được chấp nhận -> ghi đè.
+PUT {{es}}/products/_doc/1?version=1720000100000&version_type=external
+{ "id": 1, "name": "Laptop Pro v2", "updated_at": "2024-07-03T10:01:40Z" }
+
+### 6. Delete cũng dùng external version (tránh doc "sống lại" do event cũ tới sau).
+DELETE {{es}}/products/_doc/1?version=1720000200000&version_type=external
+
+### 7. _count — dùng để reconcile nông với COUNT(*) của Postgres (backend: Count).
+GET {{es}}/products/_count
+
+### 8. _mget chỉ lấy updated_at nhiều id 1 lần — reconcile SÂU (backend: MgetUpdatedAt).
+### So updated_at ES vs Postgres theo lô id: khác -> stale -> re-index từ DB.
+GET {{es}}/products/_mget?_source=updated_at
+{ "ids": [ "1", "2", "3" ] }
+
+### 9. _bulk — backfill/idempotent (backend: buildBulk + Bulk). _id = id DB nên chạy lại an toàn.
+POST {{es}}/products/_bulk
+{ "index": { "_id": "2" } }
+{ "id": 2, "name": "Phone X", "updated_at": "2024-07-03T10:05:00Z" }
+{ "index": { "_id": "3" } }
+{ "id": 3, "name": "Headphone Z", "updated_at": "2024-07-03T10:06:00Z" }
+
+### 10. Reindex zero-downtime bằng alias (backend: ReindexSwap).
+### 10a. Tạo index mới với mapping mới.
+PUT {{es}}/products_v2
+{
+  "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+  "mappings": { "properties": {
+    "id": { "type": "long" }, "name": { "type": "text", "fields": { "raw": { "type": "keyword" } } },
+    "updated_at": { "type": "date" }
+  } }
+}
+
+### 10b. _reindex copy dữ liệu từ index cũ sang mới (giữ external version).
+POST {{es}}/_reindex?refresh=true
+{ "source": { "index": "products" }, "dest": { "index": "products_v2", "version_type": "external" } }
+
+### 10c. Swap alias ATOMIC trong 1 lệnh (add mới + remove cũ) -> search không gián đoạn.
+POST {{es}}/_aliases
+{ "actions": [
+  { "add":    { "index": "products_v2", "alias": "products" } },
+  { "remove": { "index": "products_v1", "alias": "products" } }
+] }
+
+### 10d. Xóa index cũ sau khi verify.
+DELETE {{es}}/products_v1
