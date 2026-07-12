@@ -115,6 +115,56 @@ search dùng analyzer **khác nhau** cho đúng mục đích.
 - "Did you mean" = **term suggester** trên `name` (`suggest_mode: always`).
 - Verify: `q=notebook` → ra "Acme Laptop Pro" (synonym); `/suggest?q=Globex` → gợi ý tên; `q=labtopp` → `fallback:"suggest"`, `did_you_mean:"laptop"`.
 
+## 9. Admin API vận hành: `backfill` / `reconcile` / `reconcile/deep` / `reindex` dùng khi nào?
+
+**Cốt lõi:** outbox worker chỉ đồng bộ **incremental** (theo thay đổi mới). Khi cần nạp lại **toàn bộ**
+dữ liệu, **kiểm tra** độ lệch, hoặc **đổi mapping**, cần bộ API admin riêng — đây là "van xả" cho các tình
+huống mà cơ chế đồng bộ thường ngày không tự lo được.
+
+| Endpoint | Khi nào dùng | Cơ chế |
+|---|---|---|
+| `POST /admin/backfill` | Seed lần đầu, hoặc sau khi ES mất dữ liệu / đổi index mà cần nạp lại `_source` | Quét Postgres theo keyset (batch 500) → `_bulk` sang ES. Idempotent (dùng `_id = id DB`), chạy lại an toàn |
+| `GET /admin/reconcile` | Check nhanh "PG và ES có lệch số lượng không" (dashboard/health check định kỳ) | `COUNT(*)` PG vs `_count` ES + số `outbox_pending`. Đọc-only, rẻ. ES down → trả degrade, không 500 |
+| `GET /admin/reconcile/deep?fix=true` | Nghi ngờ lệch **nội dung** (không chỉ thiếu/thừa) — vd sau incident, sau bug worker | So `updated_at` từng lô id giữa PG và ES. Tốn hơn reconcile nông. `fix=true` tự re-index doc lệch |
+| `POST /admin/reindex` | Đổi mapping/analyzer (field mới, thêm synonym, đổi kiểu dữ liệu…) mà không downtime | Tạo index mới → `_reindex` từ index cũ → swap alias `products` atomic (xem chi tiết §3 ở trên) |
+
+**Trong project:** cả 4 nằm ở `handler/admin.go`, đăng ký trong `handler.go`. Đây chính là cơ chế khắc phục
+khi outbox pattern (mục 1) bị trễ/lỗi/lệch — cho phép nạp lại từ đầu, đo độ lệch, và đổi mapping mà không
+cần tắt service hay đọc thẳng vào index thật (luôn qua alias).
+
+**Tóm lại outbox vs dual (chi tiết ở mục 1):**
+- **`outbox`** (mặc định) — ghi PG + outbox cùng transaction, worker sync ES sau, có external version chống stale write, **tự hồi phục** khi ES down (reconcile sẽ về `in_sync:true` sau khi ES sống lại).
+- **`dual`** (`WRITE_MODE=dual`) — ghi thẳng ES trong request, không transaction chung với PG → ES down là **lệch vĩnh viễn** (`X-Dual-Write-Drift`), phải dùng admin API ở trên để vá thủ công. Đây là bài học phản diện, không phải mode dùng thật.
+
+## 10. Outbox có phải cứ "đẩy cho worker" là xong? So với queue kiểu asynq thì sao?
+
+**Cốt lõi:** "đẩy cho worker xử lý" **không phải** điểm cốt lõi của outbox. Cốt lõi là **outbox row được
+ghi cùng transaction với data gốc** — cách worker lấy ra xử lý sau đó (poll DB hay đẩy vào queue) chỉ là
+chi tiết triển khai phía sau, không quyết định tính đúng đắn.
+
+**So với queue kiểu asynq (Redis-backed):**
+
+| | Outbox (project này) | asynq |
+|---|---|---|
+| Ghi "ý định sync" | `INSERT products` + `INSERT outbox` **cùng 1 SQL transaction** | `Enqueue()` ghi vào Redis — **transaction riêng**, tách khỏi transaction Postgres |
+| Process chết ngay sau khi commit DB | Outbox row đã nằm trong DB, worker poll vẫn thấy → không mất | Nếu chết trước khi `Enqueue()` chạy → job **không tồn tại**, không ai retry → mất vĩnh viễn |
+
+**Vì sao lệch:** Postgres và Redis là hai hệ thống, **không có transaction chung**. `tx.Commit()` xong mới
+`Enqueue()` → giữa hai dòng đó chết là mất job. Đây thực chất **cùng lỗi với `WRITE_MODE=dual`** (mục 1, 9)
+— chỉ khác đối tượng ghi thẳng không transaction là Redis thay vì ES.
+
+**Cách kết hợp đúng nếu vẫn muốn dùng asynq — "transactional outbox + relay":**
+1. Ghi outbox row trong Postgres transaction (như project đang làm).
+2. Một **relay process** riêng (poll outbox hoặc CDC) đọc row chưa xử lý → `asynqClient.Enqueue()` → chỉ
+   `mark processed_at` **sau khi** enqueue thành công.
+3. asynq worker nhận job, xử lý **idempotent** (giống project dùng external version chống stale write — mục 2).
+
+Tóm lại: outbox giải quyết "ghi DB xong, chắc chắn không quên báo hệ thống khác biết". asynq giỏi đoạn
+"xử lý job đó thế nào — retry, backoff, nhiều worker song song". Hai cái bổ sung nhau, không thay thế nhau.
+
+**Trong project:** `outbox/worker.go` poll trực tiếp Postgres (`FOR UPDATE SKIP LOCKED`), không dùng
+queue ngoài (Redis/asynq) — chọn vậy vì đơn giản, ít moving part, đủ cho mục đích học outbox pattern gốc.
+
 ---
 
 ## Bonus — Multi-tenant access filter (§14.20)

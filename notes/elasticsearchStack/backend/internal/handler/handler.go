@@ -44,6 +44,7 @@ func (h *Handler) Register(r *gin.Engine) {
 	r.POST("/products", h.create)
 	r.PUT("/products/:id", h.update)
 	r.DELETE("/products/:id", h.delete)
+
 	r.POST("/admin/backfill", h.backfill)
 	r.GET("/admin/reconcile", h.reconcile)
 	r.GET("/admin/reconcile/deep", h.reconcileDeep)
