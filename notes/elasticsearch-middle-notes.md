@@ -12,6 +12,71 @@ Mindset chốt:
 
 ---
 
+## 0. Giải thích nhanh bằng ví dụ đời thường (đọc trước khi vào chi tiết)
+
+Phần này dùng analogy để nắm trực giác trước, các mục 1–15 phía sau mới đi vào thuật ngữ/chi tiết kỹ thuật.
+
+### 0.1 ES là gì — analogy "mục lục cuối sách"
+
+SQL DB giống một **cuốn sách dày**: muốn tìm trang nào chứa từ "con cáo" mà không có mục lục, cách duy nhất là lật từng trang đọc (`LIKE '%cáo%'` = quét toàn bộ, chậm dần theo sách dày lên).
+
+Elasticsearch giống **mục lục kiểu từ điển ở cuối sách**: đọc trước toàn bộ sách, tách ra từng từ, ghi lại "từ X nằm ở trang 5, 12, 88" (đây là **inverted index**, xem §5). Tra từ "cáo" → nhảy thẳng tới đúng trang, không đọc lại cả cuốn. Nhờ tách theo từ, ES còn tiện thể: hiểu "cáo" ~ "con cáo" là cùng ý (đã chuẩn hóa/tách từ), xếp hạng trang nào liên quan nhất (SQL LIKE chỉ trả lời có/không, không xếp hạng), và chịu được gõ sai chính tả.
+
+**Use case gặp thực tế**: ô tìm kiếm sản phẩm (Shopee/Tiki), tìm bài viết, tìm log lỗi hệ thống (ELK), dashboard đếm số liệu real-time, tìm địa điểm gần đây. Danh sách đầy đủ ở §1.
+
+### 0.2 Mapping — analogy "quyết định cách đánh mục lục"
+
+Mapping = schema (giống `CREATE TABLE`), nhưng với field text nó còn quyết định **"từ điển sẽ tách từ ra sao"**. Field `name` = "Áo Thun Nam":
+
+* khai là **`text`** → ES tách thành `["áo", "thun", "nam"]` để search được từng từ, kể cả không dấu;
+* khai là **`keyword`** → ES giữ nguyên cả cụm "Áo Thun Nam" làm một khối, dùng để lọc chính xác / sort / group by, **không** tách từ.
+
+Chọn sai loại này là lỗi kinh điển: search không ra kết quả, hoặc sort/group lỗi/tốn RAM. Quy tắc nhanh: mô tả/nội dung dài → `text`; status/email/id/enum → `keyword`. Chi tiết + ví dụ multi-field ở §5 ("`text` vs `keyword`") và §6 (mapping).
+
+### 0.3 Khác gì SQL — ai là "source of truth"
+
+**Source of truth** = nơi giữ dữ liệu thật, đáng tin nhất; mất là mất thật; mọi hệ thống khác phải đồng bộ theo nó.
+
+Analogy: SQL là **sổ cái ngân hàng gốc** — chính xác tuyệt đối, có transaction (chuyển tiền phải all-or-nothing), có ràng buộc. ES là **bản photocopy được đánh index để tra cứu nhanh** — cực nhanh để tìm, nhưng xé mất bản photocopy này thì photocopy lại từ sổ gốc là xong, không mất gì thật.
+
+| | SQL | Elasticsearch |
+|---|---|---|
+| Transaction ACID | Có | Không (không join thật, không transaction đa document) |
+| Ghi xong đọc thấy ngay | Có | Không — trễ ~1s (near real-time, xem §4) |
+| Search full-text nhiều field, xếp hạng | Yếu | Mạnh (BM25, xem §8) |
+| Mất dữ liệu có tái tạo lại được không | N/A (nó là gốc) | Được — reindex lại từ SQL |
+
+Nguyên tắc chốt: **ES không bao giờ là source of truth**, luôn đứng cạnh SQL. Chi tiết ở §1.
+
+### 0.4 Edge case: dữ liệu ES lệch SQL — và khác Redis chỗ nào
+
+**ES không phải cache.** Redis là cache: giữ **y hệt** dữ liệu SQL để đọc nhanh hơn, có TTL, cache miss thì query lại DB ngay lúc đó (đồng bộ tại chỗ). ES là bản dữ liệu **biến đổi/đánh index** để search, đồng bộ **bất đồng bộ**, trễ vài giây là bình thường — không phải "on-demand" như Redis.
+
+Các tình huống lệch dữ liệu hay gặp (chi tiết cơ chế + code ở §11):
+
+1. **Dual-write inconsistency**: app ghi SQL xong, ghi tiếp ES thì crash giữa chừng → SQL có, ES không → user search không thấy record vừa tạo. Giải bằng **outbox pattern**: ghi dữ liệu + "việc cần đồng bộ" trong cùng 1 transaction SQL, worker riêng đọc outbox rồi đẩy ES, lỗi thì retry → cuối cùng chắc chắn khớp (**eventually consistent**, không phải mất luôn).
+2. **Update dồn dập, event tới ES bị đảo thứ tự** → bản cũ ghi đè bản mới. Giải bằng **external version** để ES tự chối bản cũ hơn.
+3. **`track_total_hits` "nói dối" tổng số kết quả** (mặc định ES ngừng đếm chính xác sau 10k để nhanh) — không phải bug, là đánh đổi tốc độ lấy độ chính xác (§12.2).
+
+### 0.5 Vận hành: service down có phải ES down theo không?
+
+**Không** — quan hệ phụ thuộc đi **một chiều**:
+
+```text
+SQL DB (source of truth) --sync (outbox/CDC)--> Elasticsearch (search index)
+        ^                                                |
+        |                                                v
+  app vẫn chạy bình thường                     chỉ tính năng SEARCH bị ảnh hưởng
+  (tạo đơn, thanh toán...)                      nếu ES down
+```
+
+* **ES down** → app chính (ghi đơn hàng, thanh toán, CRUD) vẫn chạy vì nó dựa vào SQL, không phải ES. Chỉ tính năng "tìm kiếm" lỗi/tắt tạm — thiết kế tốt là graceful degradation (search báo "đang bảo trì", không kéo sập cả app).
+* **App/service ghi dữ liệu chính down** → ES vẫn sống, chỉ là không có dữ liệu mới đổ vào, dữ liệu cũ vẫn search bình thường.
+* **Mất hẳn index ES** (vd xóa nhầm) → không phải thảm họa, vì **reindex lại từ SQL** là khôi phục 100% (miễn SQL còn) — đây chính là ý nghĩa "ES không phải source of truth".
+* Nguy hiểm thật sự chỉ xảy ra nếu ai đó lỡ coi ES là nơi lưu dữ liệu **duy nhất** (không còn lưu ở SQL) — lúc đó mất ES = mất thật. Đây là lỗi thiết kế cần tránh tuyệt đối (§13, mục "Coi ES là source of truth").
+
+---
+
 ## 1. Elasticsearch dùng để làm gì?
 
 Elasticsearch (ES) là search & analytics engine, xây trên **Apache Lucene**, lưu dữ liệu dạng JSON document và truy vấn qua REST API. Lucene lo phần lõi (inverted index, scoring, segment); ES bọc thêm lớp phân tán (shard/replica, cluster, node), REST API, query DSL, aggregation và quản lý vận hành.
