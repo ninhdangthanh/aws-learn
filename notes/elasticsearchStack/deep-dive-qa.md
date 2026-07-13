@@ -165,6 +165,67 @@ Tóm lại: outbox giải quyết "ghi DB xong, chắc chắn không quên báo 
 **Trong project:** `outbox/worker.go` poll trực tiếp Postgres (`FOR UPDATE SKIP LOCKED`), không dùng
 queue ngoài (Redis/asynq) — chọn vậy vì đơn giản, ít moving part, đủ cho mục đích học outbox pattern gốc.
 
+## 11. Đổi mapping (reindex + backfill) xong, bảng `outbox` xử lý ra sao? Case ES mất hết data thì sao?
+
+**Cốt lõi:** `reindex` và `backfill` **không đụng gì tới bảng outbox** — không đọc, không mark, không xóa.
+Chúng đọc thẳng nguồn của chúng (index cũ / bảng `products`) rồi ghi ES. Worker vẫn chạy độc lập song song,
+tiếp tục poll pending rows theo lịch riêng — hai tiến trình không biết đến nhau, không có coordination.
+
+**Vì sao vẫn hội tụ đúng:** worker ghi kèm external version (`updated_at` epoch ms — mục 2), nên dù thứ tự
+bị đảo giữa backfill và worker, bản có version lớn hơn luôn thắng cuối cùng.
+
+**Gap thật trong code:** `buildBulk()` (`handler/search.go:16-27`, dùng bởi `backfill` và
+`reconcile/deep?fix=true`) ghi **plain `_bulk`, không set `version`/`version_type=external`** — khác
+`esclient.IndexDoc()` (dùng bởi worker). Nghĩa là ghi từ backfill **luôn thắng vô điều kiện**, không check
+version. Race thật: backfill đọc 1 trang product tại thời điểm T → trước khi kịp ghi ES, có update mới trên
+đúng doc đó và worker (poll ngắn hơn) đã ghi bản mới vào ES trước → backfill ghi xong sau **đè bản mới bằng
+bản cũ nó đã đọc trước đó**, không gì chặn. Vá thực tế: chạy backfill lúc traffic thấp + luôn chạy
+`reconcile/deep?fix=true` sau đó để bắt doc lệch còn sót.
+
+**Case ES crash mất hết data, backfill lại toàn bộ, outbox vẫn còn pending:**
+- Product **có** outbox row pending (update mới vào PG lúc ES down): backfill đọc state hiện tại (đã gồm
+  update đó) → ES đúng ngay sau backfill. Worker drain nốt row pending → ghi lại y hệt, vô hại (idempotent,
+  cùng `_id`).
+- Product **không có** outbox row pending (lần update cuối đã `processed` từ trước khi ES crash — outbox
+  chỉ track **delta**, không phải **full state**): nếu chỉ trông vào worker thì product này **mất vĩnh viễn
+  khỏi ES**, chẳng có gì trigger ghi lại. Đây chính là lý do `/admin/backfill` tồn tại — bỏ qua lịch sử
+  outbox, đọc toàn bộ Postgres (nguồn sự thật) ghi lại hết.
+- Không cần xóa/reset outbox trước khi backfill, cứ để chạy song song. Quy trình đúng: `backfill` →
+  `reconcile` (đếm) → `reconcile/deep?fix=true` (đối soát nội dung, vá race sót) → xác nhận
+  `outbox_pending=0` và `in_sync:true`.
+
+## 12. Project này đã đúng chuẩn production (retail hàng triệu SKU) chưa?
+
+**Phần đúng chuẩn thật** (không phải đồ chơi): transactional outbox atomic với data, external versioning
+chống stale write, zero-downtime reindex qua alias swap atomic, `post_filter` cho facet, `search_after` cho
+deep pagination, XSS-safe highlight, tenant isolation ép từ backend. Y hệt pattern hệ thống thật dùng.
+
+**Phần chưa đủ cho triệu SKU / retail thật** (đọc code thấy rõ, không phải suy đoán):
+
+| Gì | File | Vấn đề ở scale lớn |
+|---|---|---|
+| `number_of_shards:1, number_of_replicas:0` | `esclient/mapping.go:22-24` | 1 shard = không scale-out index/query; 0 replica = **mất node là mất data**, setting demo chứ không production |
+| `_reindex?refresh=true` đồng bộ (blocking) | `esclient/mapping.go:93` | Với triệu doc dễ timeout HTTP, không resumable. Production dùng `wait_for_completion=false` + poll `_tasks` + `slices:"auto"` |
+| `buildBulk` không version | `handler/search.go:16-27` | Race với worker khi backfill chạy trên hệ đang live (mục 11) |
+| `Bulk()` fail nguyên batch khi có lỗi | `esclient/esclient.go:164-173` | `errors:true` → fail cả batch 500 doc, không skip/retry riêng item lỗi → 1 doc hỏng chặn cả backfill |
+| Outbox không có retention | `migrations/001_init.sql:19-28` | Row chỉ mark `processed_at`, **không bao giờ xóa/archive** → bảng phình vô hạn theo write volume, áp lực vacuum Postgres theo thời gian |
+| Worker poll cố định | `outbox/worker.go` | `SKIP LOCKED` cho phép nhiều instance chạy song song (scale ngang OK), nhưng vẫn polling (`WORKER_POLL`) chứ không CDC/push — thêm độ trễ + tải poll liên tục lên Postgres ở write rate cao |
+
+**Kết luận:** kiến trúc/pattern đúng, nhưng tham số vận hành (shard/replica, bulk error handling, outbox
+retention, reindex mode) đang set theo kiểu học/demo — cần chỉnh trước khi đem vào hệ triệu SKU thật.
+
+## 13. API `/suggest` dùng để làm gì?
+
+**Cốt lõi:** autocomplete — gõ tới đâu gợi ý tới đó, khác `/search` (full-text, trả document) ở chỗ chỉ trả
+**list tên gợi ý**, tối ưu cho tốc độ gõ (dropdown khi user đang type).
+
+**Cơ chế:** `multi_match type=bool_prefix` trên field `name.suggest` (mapping kiểu `search_as_you_type` —
+tự sinh 3 sub-field lúc index: `name.suggest`, `._2gram`, `._3gram`) → khớp cả prefix từ đơn lẫn cụm liên
+tiếp 2-3 từ, không cần gõ hết từ.
+
+**Trong project:** `handler/suggest.go` — luôn ép `filter: term tenant_id` (không lộ tên sản phẩm tenant
+khác qua gợi ý); `size` mặc định 8; dedupe theo tên trước khi trả về.
+
 ---
 
 ## Bonus — Multi-tenant access filter (§14.20)
