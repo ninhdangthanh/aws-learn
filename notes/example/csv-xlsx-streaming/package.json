@@ -1,0 +1,25 @@
+{
+  "name": "csv-xlsx-streaming",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ví dụ streaming CSV/XLSX với Postgres: import file lớn (~1GB) vào DB và export DB ra file mà không nổ RAM",
+  "type": "commonjs",
+  "scripts": {
+    "init-db": "node db.js",
+    "generate": "node generate-fake-csv.js",
+    "import": "node import-csv-to-db.js",
+    "import:copy": "node import-csv-copy.js",
+    "export:csv": "node export-db-to-csv.js",
+    "export:xlsx": "node export-db-to-xlsx.js"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^9.0.0",
+    "csv-parse": "^5.5.6",
+    "csv-stringify": "^6.5.1",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "pg": "^8.12.0",
+    "pg-copy-streams": "^6.0.6",
+    "pg-query-stream": "^4.6.0"
+  }
+}
