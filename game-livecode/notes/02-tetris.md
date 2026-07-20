@@ -322,6 +322,24 @@ func (g *Game) lockAndRefill() int {
 và `HardDrop` đều cần đúng chuỗi này — nếu để lặp code ở hai chỗ, chỉ cần sửa
 luật tính điểm ở một chỗ là hai đường đi lệch nhau. Loại bug rất khó phát hiện.
 
+**Mỗi tick không "rơi liên tục" mà là thử ứng viên rồi mới quyết định:**
+`MoveDown` gọi `Move(board, block, 0, 1)` — hàm này tạo một **bản copy** của
+block với `Position.Y + 1`, gọi `Fits` để kiểm tra bản copy đó hợp lệ hay
+không, rồi **mới** gán vào `g.Current` nếu hợp lệ (xem mục 3, "trả về giá trị
+mới thay vì mutate"). Nếu bản ứng viên không hợp lệ → không rơi được nữa →
+lock + clear + spawn.
+
+Nói cách khác: `Tick` không tính toán quỹ đạo rơi, nó chỉ hỏi "y+1 có được
+không?" mỗi nhịp, và pattern "tạo ứng viên → kiểm tra Fits → commit hoặc bỏ"
+lặp lại giống hệt ở `MoveLeft`/`MoveRight`/`RotateCW`/`HardDrop` — tất cả đều
+quy về `Fits`.
+
+**Lưu ý:** `Game.Tick()` hiện chưa được gọi bởi timer thời gian thực nào
+trong code (chỉ `game_test.go` gọi trực tiếp để test logic, và
+`cmd/tetris-demo` không dùng `Tick` — AI tính thẳng vị trí đích rồi
+`HardDrop` luôn). Muốn có gravity thật theo `TickInterval()`, cần vòng lặp
+ngoài kiểu `time.NewTicker` gọi `Tick()` định kỳ — chưa tồn tại.
+
 ### 8. `HardDrop` — thả thẳng xuống đáy
 
 ```go
