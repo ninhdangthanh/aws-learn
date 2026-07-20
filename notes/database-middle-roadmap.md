@@ -571,6 +571,28 @@ Ví dụ F&B/POS:
 
 > Với dữ liệu core như order, payment, inventory, tôi nghiêng về PostgreSQL vì transaction, constraint và query relational rõ hơn. Với dữ liệu document như menu/catalog/config có cấu trúc nested và thay đổi theo tenant, MongoDB có thể hợp hơn. Nhưng MongoDB không có nghĩa là bỏ schema; production vẫn cần schema validation, index strategy và tránh unbounded array/hot document.
 
+### Ghi chú thực tế: câu phỏng vấn "chọn SQL hay MongoDB, và scale thế nào?"
+
+Câu hỏi interviewer đưa ra: chọn MySQL/SQL hay MongoDB, sau đó hỏi tiếp về khả năng scale của lựa chọn đó.
+
+Câu trả lời lúc phỏng vấn: đã chọn SQL vì "truyền thống hơn và tốt cho tác vụ bình thường hơn". Khi bị hỏi sâu về scale thì chỉ nói được MongoDB scale ngang tốt và dễ, còn MySQL thì scale dọc và có thể scale ngang bằng sharding. Thiếu phần lý do/trade-off phía sau, nên câu trả lời nghe cảm tính.
+
+Bản đầy đủ hơn nên trả lời theo mạch sau:
+
+1.  **Điểm mạnh cốt lõi của từng loại**
+    *   SQL (MySQL/PostgreSQL): consistency mạnh, quan hệ giữa bảng rõ ràng, transaction chuẩn ACID → an toàn và logic cho nghiệp vụ CRUD/giao dịch/tài chính/đơn hàng.
+    *   MongoDB (NoSQL, document): schema linh hoạt, hợp dữ liệu phi cấu trúc/log/nội dung/feed, dễ mở rộng theo chiều ngang.
+2.  **Scale của SQL truyền thống** đi theo các hướng:
+    *   Scale-up: tăng CPU/RAM.
+    *   Replication: read replica để chia tải đọc.
+    *   Partitioning: chia nhỏ bảng.
+    *   Sharding: tự chia dữ liệu ra nhiều node (phức tạp hơn vì không built-in).
+3.  **Scale của MongoDB**: hỗ trợ sharding sẵn (built-in), schema linh hoạt nên tách dữ liệu ra nhiều node để chịu tải thường triển khai dễ hơn SQL.
+4.  **Đánh đổi (trade-off) cần nói ra**: ở MongoDB, đảm bảo ACID mạnh ở quy mô lớn phức tạp hơn, và join phức tạp không tự nhiên như SQL — đây chính là phần bị thiếu trong câu trả lời lúc phỏng vấn.
+5.  **Kết luận không phải "cái nào tốt hơn" mà là "hợp bài toán nào"**: hệ thống kế toán/giao dịch → SQL; nền tảng có nội dung do người dùng tạo nhiều, schema đổi thường xuyên, cần scale nhanh → MongoDB hợp hơn.
+
+Bài học: khi trả lời câu hỏi kiểu này, cần thể hiện hiểu trade-off (consistency vs scalability) thay vì chỉ nói theo cảm tính kiểu "truyền thống hơn" hay "mới hơn".
+
 ---
 
 ## 16. MongoDB Schema Validation
