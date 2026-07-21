@@ -90,6 +90,60 @@ XX
 
 lưu thành `{0,0}, {1,0}, {0,1}, {1,1}`.
 
+Block vuông chính là trường hợp riêng của **chữ nhật đặc 2 hàng × 2 cột** — mọi
+ô trong bounding box đều thuộc block, khác với chữ L hay chữ T là bounding box
+có ô trống.
+
+Block chữ nhật 2 hàng × 3 cột:
+
+```
+XXX
+XXX
+```
+
+lưu thành `{0,0}, {1,0}, {2,0}, {0,1}, {1,1}, {2,1}` — tức 6 ô, đủ hết
+bounding box 2×3. Bounding box của chữ nhật luôn khớp chính xác số ô thật
+(`rows × cols`), nên đây là dạng "tốn bộ nhớ tương đương ma trận" — không có ô
+trống nào bị lãng phí, khác với L/T/S/Z là bounding box luôn thừa ít nhất 1–2 ô.
+
+Xoay 90° chữ nhật 2×3 thì đổi hàng/cột thành 3×2:
+
+```
+XX
+XX
+XX
+```
+
+tức `{0,0}, {1,0}, {0,1}, {1,1}, {0,2}, {1,2}`.
+
+Block chữ T:
+
+```
+XXX
+.X.
+```
+
+lưu thành `{0,0}, {1,0}, {2,0}, {1,1}`. Origin luôn là ô `{0,0}` — góc trên bên
+trái của bounding box, kể cả khi ô đó không thuộc block (như hàng dưới của chữ
+T, chỉ có `{1,1}` là thuộc block).
+
+Block chữ nhật 1x4 (thanh dài, nằm ngang):
+
+```
+XXXX
+```
+
+lưu thành `{0,0}, {1,0}, {2,0}, {3,0}`. Xoay dọc (`Rotate90`) thì thành:
+
+```
+X
+X
+X
+X
+```
+
+tức `{0,0}, {0,1}, {0,2}, {0,3}`.
+
 **Câu trả lời khi interviewer hỏi "tại sao không dùng ma trận `[][]bool`?"**
 
 > Em lưu block dưới dạng danh sách các ô tương đối so với góc trên bên trái.
