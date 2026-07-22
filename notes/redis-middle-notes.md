@@ -612,15 +612,28 @@ Mitigation:
 
 ### Cache stampede
 
+> Còn gọi là **cache breakdown** hoặc dogpile effect — cùng một hiện tượng, khác tên gọi. Tài liệu Trung Quốc/phỏng vấn hay dùng bộ ba "penetration / breakdown / avalanche", cần phân biệt rõ vì rất dễ bị hỏi so sánh.
+
 Nhiều request cùng miss một key hot, tất cả cùng đánh DB.
+
+Ví dụ: key `product:1` đang phục vụ 10.000 RPS, TTL hết hạn đúng một khoảnh khắc → cả 10.000 request cùng miss và cùng chạy query rebuild → DB sập dù trước đó chỉ chịu 1 QPS cho key này.
 
 Mitigation:
 
 * Singleflight trong cùng process.
 * Distributed lock ngắn cho rebuild.
 * Stale-while-revalidate: trả stale data ngắn hạn và refresh background.
+* Logical expiration: key không bao giờ hết hạn thật, thay vào đó lưu kèm field `expire_at` trong value; khi đọc thấy quá hạn thì trả stale ngay và cho một worker refresh nền.
 * TTL jitter.
 * Warmup key hot.
+
+**Phân biệt ba lỗi hay bị nhầm:**
+
+| Tên | Hiện tượng | Nguyên nhân | Cách chữa chính |
+|---|---|---|---|
+| **Penetration** | Key **không tồn tại trong DB**, cache không bao giờ có gì để lưu → mọi request đều xuống DB | Bị quét id không tồn tại, hoặc bot tấn công | Cache null có TTL ngắn, Bloom filter, validate input |
+| **Breakdown/Stampede** | **Một** key hot hết hạn, hàng nghìn request cùng rebuild | TTL hết đúng lúc traffic cao | Mutex/singleflight, logical expiration, stale-while-revalidate |
+| **Avalanche** | **Nhiều** key cùng hết hạn một lúc, hoặc Redis down | Cùng set TTL bằng nhau, hoặc mất cả cache layer | TTL jitter ngẫu nhiên, warmup theo đợt, circuit breaker, DB có headroom |
 
 ### Cache penetration
 
@@ -1038,3 +1051,140 @@ Cần TTL ngắn để object mới tạo không bị ẩn quá lâu.
 ### "JWT blacklist dùng Redis kiểu gì?"
 
 > Mỗi JWT nên có `jti`. Khi revoke token, set key `blacklist:jti:{jti} = 1` với TTL bằng thời gian còn lại của token. Mỗi request validate signature/exp xong check Redis xem `jti` có bị blacklist không. Dùng String key có TTL tốt hơn Set, vì mỗi token có TTL riêng.
+
+---
+
+## 8. Câu hỏi phỏng vấn Redis hay gặp nhất
+
+### "Tại sao dùng Redis?"
+
+Đây là câu mở đầu gần như chắc chắn có. Đừng trả lời "vì Redis nhanh" rồi dừng — phải nói được **nhanh nhờ đâu** và **đánh đổi gì**.
+
+> Redis nhanh vì ba lý do cộng lại: dữ liệu nằm hoàn toàn trong RAM nên không có disk seek; data structure được thiết kế sẵn cho thao tác O(1)/O(log n) như hash, sorted set; và model single-thread cho phần xử lý command nên không có lock contention, không có context switch, mỗi command là atomic tự nhiên. Đổi lại, RAM đắt hơn disk nhiều lần và Redis không phải nơi lưu source of truth.
+
+Nhưng "nhanh" chưa phải lý do đủ. Lý do thật khi thiết kế hệ thống:
+
+1. **Giảm tải downstream** — cái này quan trọng nhất, xem mục dưới.
+2. **Shared state giữa nhiều app instance** — khi app scale ngang và stateless, session, rate limit counter, distributed lock không thể để trong memory của từng process. Redis là nơi duy nhất mọi instance cùng nhìn thấy.
+3. **Data structure có sẵn** — leaderboard bằng sorted set, unique visitor bằng HyperLogLog, presence bằng Set. Làm những thứ này trong SQL vừa phức tạp vừa chậm.
+4. **TTL native** — dữ liệu tự hết hạn, không cần cron dọn dẹp. Rất hợp với OTP, token, dedup window, session.
+5. **Atomic operation** — `INCR`, `SETNX`, Lua script cho phép làm counter/lock đúng mà không cần transaction DB.
+
+### "Redis giảm tải cho database như thế nào?"
+
+Nên trả lời bằng **con số cụ thể**, không nói chung chung.
+
+Giả sử API `GET /products/:id` chạy 1000 RPS, mỗi query DB mất 20ms:
+
+**Không có cache:** 1000 RPS đập thẳng vào Postgres. Với connection pool 50 connection và mỗi query 20ms, throughput tối đa là `50 / 0.02 = 2500 QPS` — đã dùng 40% capacity chỉ cho một endpoint. Request thứ 51 phải xếp hàng chờ connection.
+
+**Có cache-aside, hit rate 95%:** chỉ còn 50 RPS xuống DB. Tải DB giảm 20 lần. Latency p99 từ ~25ms xuống ~2ms.
+
+Cơ chế giảm tải cụ thể:
+
+* **Giảm số query** — request hit cache không tạo connection, không chiếm slot trong pool, không tốn CPU parse/plan/execute query.
+* **Giải phóng connection pool** — đây là chỗ chết thật sự trong production. Postgres không chịu được hàng nghìn connection; mỗi connection tốn RAM và context switch. Cache giữ pool luôn rảnh cho các write/query thật sự cần DB.
+* **Hấp thụ traffic spike** — khi traffic tăng đột biến 10 lần, phần tăng thêm phần lớn là read lặp lại, cache nuốt hết, DB gần như không cảm nhận được.
+* **Bảo vệ query đắt** — aggregation/report chạy 2 giây, cache 5 phút thì thay vì 300 lần chạy chỉ còn 1 lần.
+* **Giảm áp lực replica** — bớt read query nghĩa là replica ít bận hơn, replication lag thấp hơn.
+
+Nhưng phải nói kèm mặt trái, đây là chỗ ghi điểm:
+
+> Cache giảm tải DB nhưng tạo ra rủi ro mới: dữ liệu stale, cache stampede khi key hot hết hạn đồng loạt, và nguy hiểm nhất là **hệ thống trở nên phụ thuộc cache**. Nếu Redis chết mà DB vốn chỉ đang chịu 5% traffic, toàn bộ 100% traffic đổ xuống DB cùng lúc thì DB sập ngay. Nên khi thiết kế tôi luôn hỏi: nếu Redis down bây giờ, DB có sống nổi không? Cách xử lý là giữ DB có headroom, thêm circuit breaker, request coalescing và local cache tầng 2.
+
+### "Cache cái gì và không cache cái gì?"
+
+Tiêu chí chọn: **đọc nhiều, đổi ít, chấp nhận được stale trong vài giây**.
+
+| Nên cache | Vì sao |
+|---|---|
+| Product/catalog detail | Đọc rất nhiều, đổi vài lần/ngày |
+| User profile, avatar, display name | Đọc mỗi request, đổi hiếm |
+| Config, feature flag, settings | Gần như không đổi, mọi request đều cần |
+| Permission/role mapping | Đọc mỗi request để authorize, đổi rất hiếm |
+| Tỉ giá, phí ship, danh mục tỉnh/thành | Dữ liệu tham chiếu, đổi theo giờ hoặc theo tháng |
+| Kết quả aggregation/report nặng | Query 2 giây, cache 5 phút là đủ |
+
+| Không nên cache | Vì sao |
+|---|---|
+| Số dư ví/tài khoản ngân hàng | Sai một giây là sai tiền, phải đọc DB trong transaction |
+| Tồn kho lúc trừ hàng | Oversell nếu đọc số cũ |
+| Trạng thái thanh toán | Ảnh hưởng quyết định nghiệp vụ ngay lập tức |
+| Dữ liệu chỉ đọc một lần | Hit rate ~0, chỉ tốn RAM |
+| Dữ liệu đổi liên tục | Invalidate nhiều hơn hit, cache vô nghĩa |
+
+Lưu ý sắc thái: **hiển thị** tồn kho hay số dư trên UI thì cache được (chấp nhận lệch vài giây), nhưng **quyết định** trừ kho hay trừ tiền thì bắt buộc đọc DB với lock/transaction. Đây là chỗ phân biệt người đã làm production hay chưa.
+
+### Ví dụ cụ thể: cache cái gì, key ra sao, TTL bao nhiêu
+
+Khi phỏng vấn, đưa được ví dụ kèm key pattern và TTL sẽ thuyết phục hơn nhiều so với nói "cache product, cache user".
+
+| Dữ liệu | Key pattern | Type | TTL | Cách invalidate |
+|---|---|---|---|---|
+| Product detail | `product:{id}` | String (JSON) hoặc Hash | 10-30 phút | Xoá key khi update product |
+| Danh sách sản phẩm theo filter | `products:cat:{cat}:page:{n}:sort:{s}` | String | 1-5 phút | TTL là chính, key quá nhiều để invalidate hết |
+| User profile | `user:{id}` | Hash | 15-60 phút | Xoá khi user sửa profile |
+| Permission/role của user | `perm:user:{id}` | Set | 5-15 phút | Xoá khi đổi role — phải ngắn vì liên quan bảo mật |
+| Session | `session:{sid}` | Hash | 30 phút, refresh mỗi request | Xoá khi logout |
+| Config/feature flag | `config:app` | Hash | 1-5 phút | Pub/Sub báo tất cả instance reload |
+| Tỉ giá ngoại tệ | `rate:{from}:{to}` | String | 5-60 phút | TTL, vì nguồn cũng chỉ update theo chu kỳ |
+| Danh mục tỉnh/thành, ngành hàng | `ref:provinces` | String | 24 giờ | Deploy hoặc admin sửa thì xoá |
+| Kết quả search | `search:{hash(query)}` | String | 1-10 phút | TTL, thêm hash để tránh key quá dài |
+| Đếm view/like | `count:post:{id}` | String (`INCR`) | Không TTL, flush xuống DB định kỳ | Không invalidate, đây là source tạm |
+| Leaderboard | `rank:game:{id}:daily` | Sorted Set | Hết ngày | Rebuild theo chu kỳ |
+| Top sản phẩm bán chạy | `top:products:daily` | Sorted Set | 1 giờ | Job tính lại theo giờ |
+| Kết quả report/aggregation nặng | `report:revenue:{shop}:{date}` | String | 5-30 phút | TTL, hoặc xoá khi có đơn mới nếu cần tươi |
+| Rate limit counter | `rl:{userId}:{window}` | String (`INCR` + TTL) | Bằng độ dài window | Tự hết hạn |
+| OTP | `otp:{phone}` | String | 5 phút | Xoá sau khi verify thành công |
+| JWT blacklist | `blacklist:jti:{jti}` | String | Bằng thời gian còn lại của token | Tự hết hạn |
+| Idempotency key | `idem:{key}` | String | 24 giờ | Tự hết hạn |
+| Trạng thái online | `online:users` | Set hoặc ZSet theo timestamp | 5 phút | Heartbeat làm mới |
+
+**Một số nguyên tắc rút ra từ bảng trên:**
+
+* **TTL tỉ lệ nghịch với mức độ nhạy cảm.** Dữ liệu tham chiếu như danh mục tỉnh thành để 24 giờ thoải mái. Permission chỉ nên 5-15 phút vì user bị thu hồi quyền mà cache còn giữ 1 tiếng là lỗ hổng bảo mật.
+* **List khó invalidate hơn detail rất nhiều.** `product:123` chỉ có một key, xoá là xong. Nhưng danh sách sản phẩm có tổ hợp filter/sort/page nên có thể sinh hàng nghìn key cho cùng một tập dữ liệu — không thể xoá hết. Với list tôi dựa vào TTL ngắn, hoặc dùng versioned key: giữ `products:version` và nhúng số version vào key, khi có thay đổi thì `INCR` version, toàn bộ key cũ thành mồ côi và tự hết hạn.
+* **Đặt TTL kèm jitter** thay vì con số cố định, ví dụ `600 + rand(0..120)` giây, để tránh avalanche khi nhiều key cùng được tạo một lúc rồi cùng hết hạn.
+* **Key convention rõ ràng** theo dạng `domain:entity:id[:variant]`, có prefix môi trường nếu dùng chung instance. Điều này giúp debug, giúp scan theo pattern, và giúp biết key nào thuộc về ai khi memory phình.
+* **Chọn Hash khi cần đọc/ghi từng field**, ví dụ session chỉ cập nhật `last_seen` thì `HSET` một field rẻ hơn ghi lại cả JSON. Chọn String khi luôn đọc/ghi trọn gói.
+* **Đừng cache thứ đã rẻ sẵn.** Query bằng primary key trên bảng nhỏ chỉ mất 0.3ms, thêm một vòng round-trip Redis 0.5ms có khi còn chậm hơn và tốn thêm chỗ để sai dữ liệu.
+
+### "Tại sao không cache tất cả cho nhanh?"
+
+> Vì cache có chi phí thật. Thứ nhất là RAM đắt — cache dữ liệu không ai đọc chỉ đẩy key có ích ra ngoài qua eviction và làm hit rate tụt. Thứ hai là mỗi key cache thêm một nguồn sai lệch dữ liệu và một chỗ phải nhớ invalidate; càng nhiều key thì càng dễ quên và càng khó debug khi user báo "số liệu sai". Thứ ba là dữ liệu đổi liên tục thì chi phí invalidate còn lớn hơn lợi ích. Nên tôi chỉ cache những gì đo được là đọc nhiều và đổi ít, rồi theo dõi hit rate để bỏ những key không hiệu quả.
+
+### "Redis có thay được database không?"
+
+> Không, và không nên cố. Redis là in-memory nên dung lượng bị giới hạn bởi RAM và giá đắt hơn disk nhiều lần. Persistence của Redis là RDB snapshot hoặc AOF, vẫn có cửa sổ mất dữ liệu, và replication là async nên failover có thể mất write đã được ACK — không đạt durability của một database. Redis cũng không có transaction đa thao tác với rollback đúng nghĩa, không có join, không có query linh hoạt, không có constraint và foreign key. Vì vậy tôi luôn để database làm source of truth và Redis làm lớp tăng tốc — nguyên tắc là **mất toàn bộ Redis thì hệ thống chậm đi chứ không mất dữ liệu**.
+
+### "Khi nào KHÔNG nên dùng Redis?"
+
+> Không dùng Redis làm source of truth cho dữ liệu không được phép mất — Redis persistence là AOF/RDB, vẫn có cửa sổ mất dữ liệu, và replication là async nên failover có thể mất write đã ACK. Không cache dữ liệu đọc rất ít vì tỉ lệ hit thấp, chỉ tốn RAM. Không cache dữ liệu cần chính xác tuyệt đối tại thời điểm đọc như số dư ví, tồn kho lúc trừ hàng. Không dùng Redis khi dữ liệu quá lớn so với RAM — lúc đó eviction sẽ liên tục đẩy key ra và hit rate tụt thảm. Và không dùng Redis thay message queue thật khi cần durability, ordering và replay — Pub/Sub mất message, Streams thì được nhưng vẫn không bằng Kafka/RabbitMQ.
+
+### "Redis single-thread mà sao chịu được tải cao?"
+
+> Single-thread áp dụng cho phần **thực thi command**, còn I/O network từ Redis 6 đã có thể chạy đa luồng. Vì command chạy tuần tự nên không có lock, không có race giữa các client, mỗi command là atomic. Redis đạt khoảng 100k ops/s trên một core vì mỗi command chỉ tốn vài microsecond trong RAM — bottleneck thật là network I/O chứ không phải CPU. Hệ quả cần nhớ: một command chậm sẽ block **toàn bộ** server. Nên tuyệt đối tránh `KEYS *`, `FLUSHALL` trên DB lớn, Lua script chạy lâu, hoặc thao tác trên big key vài trăm nghìn phần tử. Muốn scale vượt một core thì dùng Redis Cluster để shard theo key.
+
+### "Redis vs Memcached?"
+
+> Memcached đơn giản hơn, thuần key-value string, multi-thread nên tận dụng nhiều core tốt cho cache thuần. Redis có data structure phong phú, persistence, replication, Lua, Pub/Sub, Streams, TTL linh hoạt và Cluster. Thực tế hiện nay gần như luôn chọn Redis vì cùng làm được cache mà còn làm thêm rate limit, lock, queue nhẹ, leaderboard — giảm số component phải vận hành.
+
+### "Cache hit rate bao nhiêu là tốt?"
+
+> Tuỳ workload, nhưng với cache-aside cho read-heavy API thì dưới 80% là dấu hiệu cần xem lại. Hit rate thấp thường do TTL quá ngắn, key cardinality quá cao (cache theo query param quá chi tiết nên mỗi key chỉ hit một lần), invalidate quá mạnh tay, hoặc memory không đủ nên bị evict sớm. Tôi đo bằng `keyspace_hits / (keyspace_hits + keyspace_misses)` trong `INFO stats`, kèm theo dõi `evicted_keys` — nếu `evicted_keys` tăng đều thì vấn đề là RAM chứ không phải logic cache.
+
+### "Nếu Redis down thì hệ thống thế nào?"
+
+> Đây là câu tôi luôn thiết kế trước. Nguyên tắc: Redis down phải làm hệ thống **chậm đi**, không phải **chết**. Cụ thể: đặt timeout ngắn cho lệnh Redis, khoảng 50-100ms, để không kéo theo request timeout; bọc circuit breaker để khi Redis lỗi liên tục thì bỏ qua cache đi thẳng DB thay vì chờ; đảm bảo DB còn headroom chịu được traffic khi mất cache; dùng request coalescing/singleflight để tránh nghìn request cùng miss một key; và cân nhắc local in-process cache làm tầng đệm. Riêng các flow mà Redis là bắt buộc như distributed lock hay rate limit, phải quyết định trước là fail-open hay fail-closed — rate limit thường fail-open để không chặn user thật, còn lock thì fail-closed để không phá dữ liệu.
+
+### "Cache-aside vs write-through, chọn cái nào?"
+
+> Mặc định tôi chọn cache-aside vì đơn giản, chỉ cache thứ thực sự được đọc, và Redis chết cũng không ảnh hưởng write path. Nhược điểm là request đầu tiên luôn miss và có khoảng race nhỏ giữa write DB và delete cache. Write-through cho consistency tốt hơn và không có cold miss, nhưng làm write path chậm hơn, phụ thuộc Redis khi ghi, và cache cả dữ liệu không ai đọc. Tôi chỉ dùng write-through cho dữ liệu chắc chắn sẽ được đọc lại ngay sau khi ghi.
+
+### "Làm sao giữ cache và DB đồng bộ?"
+
+> Không có cách nào đảm bảo tuyệt đối nếu không dùng distributed transaction, nên tôi chọn mức đúng "đủ dùng". Thứ tự chuẩn là ghi DB trước rồi mới xoá cache, không phải update cache — update dễ ghi đè bằng dữ liệu cũ khi có nhiều writer. TTL luôn là safety net cuối cùng để stale không kéo dài vô hạn. Nếu cần chặt hơn thì dùng versioned key, hoặc delayed double delete để xử lý race với read đang bay giữa chừng. Chặt nhất là bắt CDC/binlog rồi invalidate theo event thay vì để application tự nhớ xoá.
+
+### "Redis lưu được bao nhiêu dữ liệu, hết RAM thì sao?"
+
+> Giới hạn bởi `maxmemory`. Khi chạm ngưỡng, Redis hành xử theo `maxmemory-policy`. Với cache thuần tôi đặt `allkeys-lru` để evict key ít dùng nhất. Nếu Redis đang chứa cả dữ liệu không được phép mất như distributed lock hay session, dùng `volatile-lru` để chỉ evict key có TTL — nhưng an toàn hơn là tách hẳn instance riêng cho cache và cho state quan trọng. Tuyệt đối tránh `noeviction` cho cache vì khi đầy RAM mọi lệnh write sẽ lỗi. Cần monitor `used_memory`, `evicted_keys` và tỉ lệ `mem_fragmentation_ratio`.

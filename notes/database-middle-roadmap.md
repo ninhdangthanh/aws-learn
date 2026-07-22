@@ -47,6 +47,169 @@ Index không chỉ là "tạo index cho cột hay query". Middle level cần hi�
 
 ---
 
+## 2.1. Compound index hoạt động thế nào (phần hay bị hỏi sâu)
+
+### Cấu trúc: index là một danh sách đã sort theo bộ (tuple)
+
+Với index `(A, B, C)`, database **không** tạo 3 index riêng. Nó tạo **một** cây B-tree, trong đó mỗi entry là bộ giá trị `(A, B, C)` được sort theo thứ tự: sort theo `A` trước, `A` bằng nhau thì sort theo `B`, `B` bằng nhau thì sort theo `C`.
+
+Ví dụ index `(tenant_id, status, created_at)`:
+
+```
+(1, 'paid',    2024-01-05) -> row#12
+(1, 'paid',    2024-03-20) -> row#88
+(1, 'pending', 2024-01-02) -> row#40
+(1, 'pending', 2024-02-11) -> row#7
+(2, 'paid',    2024-01-09) -> row#51
+(2, 'pending', 2024-01-01) -> row#33
+```
+
+Hình dung theo dạng cây phân cấp cho dễ nhớ. Với `CREATE INDEX idx_user ON users(country, city, age)`:
+
+```
+VN
+ ├── HCM
+ │    ├── 20
+ │    └── 22
+ └── HN
+      └── 18
+US
+ └── NY
+      └── 30
+```
+
+Muốn xuống tầng `city` thì bắt buộc phải đi qua tầng `country` trước. Muốn xuống `age` thì phải qua cả `country` và `city`. Đây chính là lý do vật lý của leftmost prefix rule — **không có đường tắt nhảy thẳng vào tầng giữa**.
+
+Giống hệt danh bạ sort theo `(họ, tên, ngày sinh)`. Biết họ → nhảy tới đúng vùng. Biết họ + tên → thu hẹp tiếp. Nhưng **chỉ biết tên mà không biết họ thì phải đọc cả cuốn danh bạ**.
+
+Đó chính là **leftmost prefix rule**: index chỉ seek được khi bạn cung cấp giá trị **liên tục từ cột trái nhất**.
+
+### Điểm quan trọng nhất: thứ tự viết trong `WHERE` KHÔNG quan trọng
+
+Đây là chỗ nhiều người hiểu sai. Với index `(A, B, C)`:
+
+```sql
+-- Hai query này HOÀN TOÀN GIỐNG NHAU với optimizer
+WHERE A = 1 AND B = 2 AND C = 3
+WHERE C = 3 AND B = 2 AND A = 1
+```
+
+Query planner tự sắp xếp lại điều kiện, nó không đọc `WHERE` theo thứ tự bạn gõ. Cái quan trọng là **TẬP cột nào xuất hiện trong `WHERE`**, không phải thứ tự chữ.
+
+Nên khi được hỏi "index `ABC` mà query `ACB` thì sao?" → nếu ý là **thứ tự viết** `A, C, B` thì câu trả lời là: **giống hệt `ABC`, index dùng đầy đủ cả 3 cột**. Nhưng nếu ý là query chỉ có `A` và `C` (thiếu `B`) thì mới là vấn đề thật, xem bảng dưới.
+
+### Bảng tra: index `(A, B, C)` phục vụ query nào
+
+| Query filter | Index dùng được không | Giải thích |
+|---|---|---|
+| `A = ?` | ✅ Tốt | Prefix `(A)`, seek đúng vùng |
+| `A = ? AND B = ?` | ✅ Rất tốt | Prefix `(A, B)` |
+| `A = ? AND B = ? AND C = ?` | ✅ Tốt nhất | Dùng cả 3 cột để seek |
+| `A = ? AND C = ?` | ⚠️ Một phần | Seek bằng `A`, còn `C` chỉ **lọc lại** trên các entry đã quét. Vẫn nhanh hơn seq scan nhưng quét nhiều entry thừa |
+| `B = ?` | ❌ Thường không | Thiếu leftmost `A` → seq scan hoặc full index scan |
+| `C = ?` | ❌ Thường không | Như trên |
+| `B = ? AND C = ?` | ❌ Thường không | Vẫn thiếu `A` |
+| `A = ? AND B > ? AND C = ?` | ⚠️ Dừng ở `B` | `B` là range → `C` không seek được nữa, chỉ filter |
+| `A > ? AND B = ?` | ⚠️ Dừng ở `A` | Range ở cột đầu → `B` không seek được |
+
+**Quy tắc gốc:** index seek theo các cột equality liên tiếp từ trái sang, **gặp cột range đầu tiên thì dừng lại** — các cột phía sau range chỉ còn dùng để filter, không giảm được phạm vi quét.
+
+### Trường hợp `A = ? AND C = ?` chi tiết hơn
+
+Đây là câu hỏi hay nhất trong nhóm này. Điều gì thực sự xảy ra:
+
+1. Index seek tới vùng `A = ?` (thu hẹp tốt).
+2. Trong vùng đó, các entry được sort theo `B` rồi mới tới `C` → giá trị `C` nằm rải rác, không liên tục.
+3. Database quét **toàn bộ** entry có `A = ?` và test `C = ?` trên từng entry.
+
+Chi phí phụ thuộc `A` lọc còn bao nhiêu row:
+
+* `A = 'tenant_9'` còn 200 row → quét 200 entry, chấp nhận được.
+* `A = 'tenant_9'` còn 2 triệu row → thảm họa, cần index `(A, C)` riêng.
+
+PostgreSQL gọi phần này là `Index Cond` (dùng để seek) vs `Filter` (lọc sau). Đọc `EXPLAIN ANALYZE` thấy `Rows Removed by Filter` lớn là dấu hiệu index sai thứ tự cột:
+
+```
+Index Scan using idx_a_b_c on orders
+  Index Cond: (a = 1)
+  Filter: (c = 3)
+  Rows Removed by Filter: 1998400   <-- đỏ, index không phù hợp query
+```
+
+**Ngoại lệ cần biết:** MySQL 8.0+ có **index skip scan** và PostgreSQL 18 cũng đã thêm skip scan cho B-tree. Khi cột bị bỏ qua có rất ít giá trị phân biệt (ví dụ `status` chỉ có 3 giá trị), optimizer có thể "nhảy" qua từng giá trị của cột đó rồi seek tiếp. Nhưng đây là tối ưu cơ hội, không nên thiết kế index dựa vào nó.
+
+### Quy tắc sắp thứ tự cột: ESR (Equality → Sort → Range)
+
+Đây là rule của MongoDB nhưng áp dụng đúng cho cả PostgreSQL/MySQL:
+
+1. **E**quality: các cột filter bằng `=` đặt trước.
+2. **S**ort: cột dùng cho `ORDER BY` đặt giữa.
+3. **R**ange: các cột `>`, `<`, `BETWEEN`, `IN` range đặt cuối.
+
+Ví dụ query:
+
+```sql
+SELECT * FROM orders
+WHERE tenant_id = ? AND status = ? AND created_at > ?
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Index đúng: `(tenant_id, status, created_at)`
+
+* `tenant_id`, `status` equality → seek chính xác.
+* `created_at` vừa phục vụ range vừa phục vụ `ORDER BY` → database đọc index theo chiều ngược và **dừng sau 20 row**, không cần sort.
+
+Index sai: `(created_at, tenant_id, status)` → seek theo range trước, phải quét rộng rồi filter lại.
+
+### Compound index và `ORDER BY`
+
+Index `(A, B, C)` phục vụ được `ORDER BY` khi thứ tự sort khớp prefix:
+
+| `ORDER BY` | Dùng index để sort? |
+|---|---|
+| `ORDER BY A` | ✅ |
+| `ORDER BY A, B` | ✅ |
+| `ORDER BY B` (không có `WHERE A = ?`) | ❌ |
+| `WHERE A = 1 ORDER BY B` | ✅ — `A` cố định nên trong vùng đó dữ liệu đã sort sẵn theo `B` |
+| `ORDER BY A ASC, B DESC` | ❌ trừ khi tạo index `(A ASC, B DESC)` |
+| `ORDER BY A DESC, B DESC` | ✅ — đọc index ngược chiều |
+
+Nếu `EXPLAIN` thấy node `Sort` kèm `external merge Disk`, tức là DB đang phải sort thủ công vì index không phục vụ được `ORDER BY`.
+
+### Index thừa: `(A, B, C)` đã bao gồm `(A)` và `(A, B)`
+
+Nếu đã có `(A, B, C)` thì **không cần** tạo thêm `(A)` hoặc `(A, B)` — chúng là prefix và được phục vụ sẵn. Tạo thêm chỉ tốn disk và làm chậm write.
+
+Ngược lại `(A, B, C)` **không** thay thế được `(B, C)` hay `(C)`.
+
+Query tìm index trùng lặp trong PostgreSQL:
+
+```sql
+SELECT indexrelid::regclass AS index_name,
+       idx_scan AS times_used
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
+
+`idx_scan = 0` sau vài tuần chạy production → index chưa từng được dùng, cân nhắc drop.
+
+### Cách thiết kế trong thực tế
+
+1. Gom các query thật hay chạy nhất (không thiết kế index theo tưởng tượng).
+2. Cột luôn xuất hiện trong mọi query đặt trái nhất — thường là `tenant_id`, `user_id`, `shop_id`.
+3. Áp ESR cho phần còn lại.
+4. Nếu query trả về ít cột, cân nhắc thêm covering: `INDEX (tenant_id, status) INCLUDE (total, currency)` để đạt `Index Only Scan`.
+5. Chạy `EXPLAIN ANALYZE` xác minh, đừng tin cảm giác.
+6. Tạo index trên bảng lớn ở production luôn dùng `CREATE INDEX CONCURRENTLY` (PostgreSQL) để không khóa write.
+
+### Câu trả lời gọn khi phỏng vấn
+
+> Compound index là một B-tree sort theo bộ giá trị các cột, sort theo cột trái trước rồi mới tới cột phải. Vì vậy nó chỉ seek hiệu quả khi query cung cấp prefix liên tục từ trái. Thứ tự viết điều kiện trong `WHERE` không quan trọng vì optimizer tự sắp lại — cái quan trọng là tập cột nào có mặt. Với index `(A, B, C)`: query `A`, `A+B`, `A+B+C` dùng tốt; query `A+C` chỉ seek được bằng `A` rồi filter `C` nên vẫn quét thừa; query chỉ có `B` hoặc `C` thì không dùng được. Ngoài ra index dừng seek ở cột range đầu tiên, nên tôi sắp cột theo ESR: equality trước, sort, rồi range. Tôi luôn xác minh bằng `EXPLAIN ANALYZE`, nhìn `Index Cond` vs `Filter` và `Rows Removed by Filter`.
+
+---
+
 ## 3. Transaction - Nền tảng bạn đã có, nối tiếp sang consistency
 
 Transaction bảo vệ dữ liệu bằng ACID:
