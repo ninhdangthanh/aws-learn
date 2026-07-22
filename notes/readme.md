@@ -43,6 +43,7 @@ Concept nên nắm thêm trong nhóm này:
 * Khi nào dùng compound index: một compound `(A,B)` vs hai index rời `(A)` và `(B)` và vì sao BitmapAnd chậm hơn, multi-tenant, filter kèm `ORDER BY LIMIT`, covering index, unique trên tổ hợp cột; khi nào không nên.
 * Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, JWT blacklist, sorted-set scheduler, Redis Streams, distributed lock và fencing token.
 * Redis interview: tại sao nhanh (RAM + data structure + single-thread), giảm tải DB bằng cách nào và bằng con số nào, cache cái gì với TTL bao nhiêu, phân biệt penetration/breakdown/avalanche, Redis down thì hệ thống ra sao.
+* MongoDB transaction: Mongo có ACID transaction từ 4.0 nhưng ít dùng vì embedding làm single-document write đã atomic sẵn; chi phí thật (replica set bắt buộc, giới hạn 60s, cache pressure, oplog, two-phase commit xuyên shard, app phải tự retry); các cơ chế thay thế: atomic operator, unique index, optimistic version, idempotency key, saga.
 * MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
 * Elasticsearch: inverted index vs `LIKE`, analyzer (index và query cùng analyzer), `text` vs `keyword`, query context vs filter context, BM25 (TF/IDF/field length), aggregation bucket/metric, ES là secondary store, sync DB→ES (dual write/outbox/CDC), deep pagination với `search_after`, reindex zero-downtime bằng alias.
 

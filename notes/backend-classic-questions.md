@@ -349,6 +349,8 @@ Các câu hay gặp nhưng nội dung nằm ở file chuyên đề, để đây 
 | Read replica, replication lag | [Database Roadmap](database-middle-roadmap.md) mục 9 |
 | Partitioning vs sharding | [Database Roadmap](database-middle-roadmap.md) mục 8 và 14 |
 | MongoDB vs PostgreSQL chọn cái nào | [Database Roadmap](database-middle-roadmap.md) mục 15 |
+| SQL transaction vs MongoDB transaction, vì sao Mongo ít dùng | [MongoDB Notes](mongo_fnb.md) mục 11.1 |
+| Không dùng transaction thì thay bằng gì | [MongoDB Notes](mongo_fnb.md) mục 11.1 |
 | REST hay gRPC, khi nào dùng cái nào | [gRPC Notes](grpc-middle-notes.md) mục 2 |
 | Message bị xử lý hai lần | [Idempotency](idempotency/README.md), [EDA Notes](event-driven-architecture.md) |
 | Dual write, transactional outbox | [EDA Notes](event-driven-architecture.md) |

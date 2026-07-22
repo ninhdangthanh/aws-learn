@@ -316,6 +316,148 @@ Hệ thống không được thiết kế để xử lý tối ưu các luồng 
 
 ---
 
+# 11.1. SQL transaction vs MongoDB transaction — vì sao Mongo transaction ít được dùng?
+
+Đây là câu hỏi phỏng vấn rất hay, và cũng là chỗ dễ trả lời sai nhất.
+
+**Trả lời sai thường gặp:** "MongoDB không có transaction". Sai — MongoDB đã có multi-document ACID transaction từ phiên bản 4.0 (replica set) và 4.2 (sharded cluster). Nó thật sự đảm bảo đủ ACID.
+
+**Câu trả lời đúng:** MongoDB *có* transaction, nhưng ít dùng vì **một schema MongoDB thiết kế tốt thì phần lớn trường hợp không cần tới transaction**. Nếu bạn thấy mình phải dùng transaction ở khắp nơi, đó thường là dấu hiệu đang thiết kế theo tư duy quan hệ trên một document database.
+
+## Lý do gốc: khác biệt nằm ở data model, không nằm ở tính năng
+
+Đây là ý quan trọng nhất, nói được ý này là ăn điểm.
+
+**Với SQL**, chuẩn hoá dữ liệu buộc một thực thể nghiệp vụ phải nằm rải ở nhiều bảng. Muốn tạo một đơn hàng:
+
+```sql
+BEGIN;
+INSERT INTO orders (...);            -- bảng 1
+INSERT INTO order_items (...);       -- bảng 2, nhiều dòng
+UPDATE products SET stock = ...;     -- bảng 3
+INSERT INTO payments (...);          -- bảng 4
+COMMIT;
+```
+
+Bốn bảng, bốn lệnh. Nếu lệnh thứ ba lỗi mà hai lệnh đầu đã ghi thì dữ liệu hỏng. **Transaction ở đây là bắt buộc, không có lựa chọn nào khác.** Đó là lý do transaction là chuyện thường ngày trong thế giới SQL.
+
+**Với MongoDB**, mô hình document cho phép nhúng dữ liệu liên quan vào cùng một tài liệu:
+
+```js
+db.orders.insertOne({
+  _id: orderId,
+  customer: { id, name, phone },     // nhúng
+  items: [                            // nhúng, thay cho bảng order_items
+    { productId, name, qty: 2, price: 50000 },
+    { productId, name, qty: 1, price: 30000 }
+  ],
+  payment: { method: "cod", status: "pending" },
+  total: 130000,
+  status: "created"
+})
+```
+
+Một lệnh ghi, một tài liệu. Và **mọi thao tác ghi lên một tài liệu đơn lẻ trong MongoDB đều atomic sẵn** — kể cả khi cập nhật nhiều field, nhiều phần tử trong mảng, hay lồng nhiều tầng. Không cần `BEGIN/COMMIT` gì cả, vì không có gì để rollback: hoặc cả tài liệu được ghi, hoặc không.
+
+> Câu chốt: **SQL cần transaction vì dữ liệu bị chia nhỏ ra nhiều bảng. MongoDB thường không cần vì dữ liệu liên quan được gom vào một tài liệu.** Transaction trong Mongo là phương án dự phòng cho các trường hợp không gom được, chứ không phải công cụ dùng hằng ngày.
+
+## Vì sao MongoDB transaction đắt hơn SQL transaction
+
+Ngoài lý do thiết kế, còn lý do kỹ thuật.
+
+Với PostgreSQL, transaction là **đường chạy mặc định** của engine. Kể cả khi bạn không viết `BEGIN`, mỗi câu lệnh vẫn chạy trong một transaction ngầm (autocommit). MVCC được xây dựng quanh khái niệm transaction ngay từ đầu. Chi phí tăng thêm khi gói nhiều lệnh vào một transaction gần như bằng không.
+
+Với MongoDB, transaction là **một lớp bổ sung** đặt lên trên một engine vốn được thiết kế cho single-document atomicity. Hệ quả:
+
+| Vấn đề | Chi tiết |
+|---|---|
+| Bắt buộc replica set | Standalone `mongod` không chạy được transaction. Máy dev cài mặc định thường là standalone nên vướng ngay từ khâu phát triển |
+| Giới hạn thời gian | Mặc định `transactionLifetimeLimitSeconds` = 60 giây, quá hạn thì bị abort tự động |
+| Áp lực bộ nhớ | WiredTiger giữ toàn bộ thay đổi của transaction trong cache cho tới lúc commit. Transaction lớn gây cache pressure và có thể bị đẩy ra disk |
+| Ghi oplog | Toàn bộ thay đổi của một transaction được ghi vào oplog như một khối, làm tăng tải replication và có thể chạm giới hạn kích thước |
+| Xung đột phải retry | Khi hai transaction đụng nhau, Mongo ném `TransientTransactionError` và **application phải tự retry**. Driver có helper `withTransaction` làm việc này, nhưng nếu tự viết mà quên retry thì thành lỗi cho user |
+| Sharded cluster rất đắt | Transaction xuyên nhiều shard phải chạy two-phase commit qua `mongos`, đắt hơn hẳn. Đây là lý do lớn nhất khiến người ta né |
+| Đọc phải cấu hình đúng | Muốn ACID đầy đủ cần `readConcern: "snapshot"` và `writeConcern: "majority"`; để mặc định thì đảm bảo yếu hơn bạn tưởng |
+
+Trong khi đó với PostgreSQL, gói 5 câu lệnh vào một transaction là chuyện bình thường, không ai nghĩ tới chuyện "có nên dùng transaction không".
+
+## Bảng so sánh
+
+| Tiêu chí | PostgreSQL/MySQL | MongoDB |
+|---|---|---|
+| Vị trí trong thiết kế | Cơ chế cốt lõi, có từ đầu | Bổ sung từ v4.0, đặt trên nền single-doc atomicity |
+| Chi phí khi dùng | Gần như không đáng kể | Đáng kể, càng đắt trên sharded cluster |
+| Tần suất dùng thực tế | Hằng ngày, gần như mọi write path nghiệp vụ | Hiếm, chỉ cho các invariant thật sự xuyên nhiều document |
+| Atomic mặc định | Mỗi câu lệnh | Mỗi tài liệu (kể cả nested và array) |
+| Yêu cầu hạ tầng | Không | Replica set bắt buộc |
+| Xung đột | DB tự xử lý hoặc chờ lock | App phải có retry loop |
+| Giới hạn thời gian | Không cứng | 60 giây mặc định |
+| Cách tránh phải dùng | Không tránh được, do chuẩn hoá | Nhúng dữ liệu vào cùng tài liệu |
+
+## Trả lời trực tiếp: hệ 100GB dùng MongoDB làm DB chính mà không dùng transaction
+
+Trước hết, một điểm cần chỉnh: **100GB không liên quan gì tới việc có cần transaction hay không.** Kích thước dữ liệu ảnh hưởng tới index, sharding, backup, query performance — nhưng nhu cầu transaction chỉ phụ thuộc vào một câu hỏi duy nhất: *có invariant nghiệp vụ nào bắt buộc nhiều tài liệu phải thay đổi cùng lúc, đúng hoặc sai cùng nhau không?* Một hệ 10GB có ví tiền thì cần transaction hơn hẳn một hệ 100GB chỉ lưu catalog và log.
+
+Việc hệ thống của bạn không dùng transaction là **bình thường và thường là đúng**, vì các cơ chế sau đã thay thế được:
+
+**1. Nhúng dữ liệu (embedding)** — quan trọng nhất. Order kèm items, user kèm addresses, post kèm comments gần đây. Ghi một tài liệu là atomic sẵn.
+
+**2. Toán tử atomic trên một tài liệu** — phủ được phần lớn nhu cầu thực tế:
+
+```js
+// Trừ tồn kho an toàn, không cần transaction, không có race condition
+db.products.findOneAndUpdate(
+  { _id: productId, stock: { $gte: qty } },   // điều kiện bảo vệ
+  { $inc: { stock: -qty } },
+  { returnDocument: "after" }
+)
+// Trả về null nghĩa là hết hàng
+```
+
+Tương đương `UPDATE ... WHERE stock >= ?` bên SQL. `$inc`, `$push`, `$pull`, `$set`, `findOneAndUpdate` đều atomic ở mức tài liệu.
+
+**3. Unique index thay cho transaction chống trùng** — `db.orders.createIndex({ idempotencyKey: 1 }, { unique: true })` chặn tạo trùng đơn kể cả khi hai request đến đồng thời.
+
+**4. Optimistic concurrency bằng field version** — đọc kèm `version`, khi ghi thì `{ _id, version: 7 }` và `$inc: { version: 1 }`. Nếu `matchedCount = 0` thì có người sửa trước, retry.
+
+**5. Idempotency key** — thao tác chạy lại không tạo hậu quả trùng, nên retry an toàn mà không cần rollback.
+
+**6. Saga / compensating transaction** — với luồng xuyên nhiều collection hoặc nhiều service, thay vì rollback thì chạy hành động bù trừ. Đã hủy thanh toán thì hoàn tiền, đã trừ kho thì cộng lại. Bạn có sẵn ví dụ ở [order-saga-demo](order-saga-demo/README.md).
+
+**7. Outbox pattern + eventual consistency** — ghi tài liệu chính kèm event vào cùng một document hoặc collection outbox, rồi để worker phát event. Chấp nhận dữ liệu ở các collection khác đồng bộ trễ vài trăm ms.
+
+**Nhưng cần kiểm tra lại một điều:** không dùng transaction chỉ đúng nếu bạn **cố ý** thiết kế như vậy. Hãy tự hỏi hệ thống có luồng nào thuộc nhóm sau không:
+
+* Chuyển tiền/điểm giữa hai tài khoản — trừ bên này phải cộng bên kia, không được lệch.
+* Ghi sổ cái kép (double-entry ledger).
+* Trừ kho ở collection `inventory` đồng thời tạo `order` ở collection khác, mà nghiệp vụ không cho phép lệch dù chỉ tạm thời.
+* Cập nhật hạn mức/quota dùng chung giữa nhiều bản ghi.
+
+Nếu có mà đang không dùng transaction cũng không dùng saga, thì đó là bug đang chờ xảy ra chứ không phải thiết kế tốt. Nó chỉ chưa lộ vì tần suất xung đột thấp.
+
+## Khi nào thì nên dùng MongoDB transaction
+
+> Khi có invariant thật sự xuyên nhiều tài liệu mà không thể gom vào một document, và nghiệp vụ không chấp nhận được eventual consistency. Điển hình là chuyển tiền giữa hai ví, hoặc ghi sổ kế toán kép.
+
+Nguyên tắc khi buộc phải dùng:
+
+* Giữ transaction **thật ngắn** — dưới 1 giây, càng ít document càng tốt.
+* Không gọi API bên ngoài bên trong transaction.
+* Luôn dùng `withTransaction` của driver để có sẵn retry cho `TransientTransactionError`.
+* Đặt `readConcern: "snapshot"` và `writeConcern: "majority"` nếu cần đảm bảo đầy đủ.
+* Tránh transaction xuyên shard nếu có thể — cân nhắc chọn shard key sao cho các document liên quan nằm cùng một shard.
+* Trước khi viết transaction, hỏi lại lần nữa: **có gom được vào một tài liệu không?**
+
+## Câu trả lời gọn khi phỏng vấn
+
+> MongoDB có multi-document ACID transaction từ 4.0, nên không phải là thiếu tính năng. Lý do ít dùng nằm ở data model: SQL chuẩn hoá nên một thực thể nghiệp vụ bị chia ra nhiều bảng, muốn nhất quán thì bắt buộc phải có transaction. MongoDB thì nhúng dữ liệu liên quan vào cùng một tài liệu, mà ghi lên một tài liệu đơn lẻ vốn đã atomic sẵn kể cả với nested field và array — nên phần lớn trường hợp không cần transaction.
+>
+> Ngoài ra transaction của Mongo đắt hơn: nó là lớp bổ sung trên engine vốn tối ưu cho single-document, bắt buộc replica set, giới hạn 60 giây, giữ thay đổi trong cache gây áp lực bộ nhớ, ghi oplog theo khối làm tăng tải replication, và đặc biệt đắt khi phải chạy two-phase commit xuyên shard. Xung đột thì application phải tự retry chứ DB không tự xử lý.
+>
+> Ở hệ thống tôi làm, thay vì transaction thì dùng: nhúng dữ liệu để một thao tác nghiệp vụ chỉ chạm một tài liệu; các toán tử atomic như `findOneAndUpdate` với điều kiện bảo vệ để trừ kho an toàn; unique index cộng idempotency key để chống tạo trùng; optimistic locking bằng field version; và saga với hành động bù trừ cho luồng xuyên nhiều collection hoặc nhiều service. Tôi chỉ dùng transaction cho các invariant thật sự không gom được, ví dụ chuyển tiền giữa hai ví, và giữ nó thật ngắn.
+
+---
+
 # 12. Hiện tượng di dịch tài liệu (Document Relocation) do tăng trưởng kích thước
 
 MongoDB lưu trữ các tài liệu trong một tập hợp dưới dạng các khối dữ liệu liên tục trên đĩa cứng. Khi kích thước của một tài liệu tăng lên (ví dụ: thông qua thao tác thêm phần tử vào mảng):
