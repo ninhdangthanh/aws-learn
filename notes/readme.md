@@ -38,7 +38,9 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 Concept nên nắm thêm trong nhóm này:
 
 * PostgreSQL: `EXPLAIN ANALYZE`, composite index, row/table lock, `SELECT ... FOR UPDATE`, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
+* Race condition/isolation: lost update và vì sao Read Committed không chặn, write skew và vì sao `FOR UPDATE` không cứu được, phantom read, khác biệt Repeatable Read giữa PostgreSQL và MySQL, chọn giữa atomic `UPDATE` có guard / `FOR UPDATE` / optimistic version / unique constraint, `SKIP LOCKED` cho job queue.
 * Compound index: B-tree sort theo tuple, leftmost prefix rule, thứ tự viết `WHERE` không quan trọng nhưng tập cột thì có, index dừng seek ở cột range đầu tiên, quy tắc ESR, `Index Cond` vs `Filter` khi đọc plan.
+* Khi nào dùng compound index: một compound `(A,B)` vs hai index rời `(A)` và `(B)` và vì sao BitmapAnd chậm hơn, multi-tenant, filter kèm `ORDER BY LIMIT`, covering index, unique trên tổ hợp cột; khi nào không nên.
 * Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, JWT blacklist, sorted-set scheduler, Redis Streams, distributed lock và fencing token.
 * Redis interview: tại sao nhanh (RAM + data structure + single-thread), giảm tải DB bằng cách nào và bằng con số nào, cache cái gì với TTL bao nhiêu, phân biệt penetration/breakdown/avalanche, Redis down thì hệ thống ra sao.
 * MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.

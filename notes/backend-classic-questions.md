@@ -312,10 +312,49 @@ Vài câu nên chuẩn bị sẵn theo cùng khung này:
 
 * Memory của service tăng dần rồi OOM, xử lý thế nào?
 * Message trong queue bị xử lý hai lần thì sao?
-* Hai request cùng trừ tiền một tài khoản, làm sao tránh âm số dư?
+* Hai request cùng trừ tiền một tài khoản, làm sao tránh âm số dư? → đã viết ở [Database Middle Roadmap - Race condition và isolation anomalies](database-middle-roadmap.md)
 * Deploy version mới mà cần đổi schema database, làm sao không downtime?
 * Third-party API mà bạn phụ thuộc bị down, hệ thống của bạn ra sao?
 * Làm sao biết hệ thống đang khoẻ mà không cần user báo lỗi?
+
+---
+
+## Bảng tra nhanh: câu hỏi kinh điển nằm ở đâu
+
+Các câu hay gặp nhưng nội dung nằm ở file chuyên đề, để đây cho dễ tìm khi ôn gấp.
+
+| Câu hỏi | Đọc ở |
+|---|---|
+| API chậm xử lý thế nào | Mục 1 file này |
+| Traffic tăng 10 lần / 10.000 RPS | Mục 2 và 13 file này |
+| DB CPU 100% | Mục 7 file này |
+| Connection pool là gì, pool size bao nhiêu | Mục 8 file này |
+| Khi nào thêm index | Mục 9 file này |
+| Khi nào dùng queue | Mục 10 file này |
+| Đồng bộ hay bất đồng bộ | Mục 11 file này |
+| Service downstream chậm | Mục 12 file này |
+| Tại sao dùng Redis, giảm tải DB thế nào | [Redis Notes](redis-middle-notes.md) mục 8 |
+| Redis down thì hệ thống ra sao | [Redis Notes](redis-middle-notes.md) mục 8 |
+| Cache và DB lệch nhau, invalidate thế nào | [Redis Notes](redis-middle-notes.md) mục 8 |
+| Tại sao không cache tất cả | [Redis Notes](redis-middle-notes.md) mục 8 |
+| Cache cái gì, TTL bao nhiêu | [Redis Notes](redis-middle-notes.md) mục 8, bảng ví dụ |
+| Penetration vs breakdown vs avalanche | [Redis Notes](redis-middle-notes.md) mục 4 |
+| Redis có thay được DB không | [Redis Notes](redis-middle-notes.md) mục 8 |
+| Compound index, leftmost prefix, query thiếu cột giữa | [Database Roadmap](database-middle-roadmap.md) mục 2.1 |
+| Khi nào dùng compound index, một compound hay nhiều single | [Database Roadmap](database-middle-roadmap.md) mục 2.2 |
+| Race condition trừ tiền/trừ kho, lost update, write skew | [Database Roadmap](database-middle-roadmap.md) mục 6.1 |
+| `SELECT FOR UPDATE` vs optimistic lock | [Database Roadmap](database-middle-roadmap.md) mục 6.1 |
+| Isolation level chặn được anomaly nào | [Database Roadmap](database-middle-roadmap.md) mục 6.1 |
+| OFFSET/LIMIT có vấn đề gì, keyset pagination | [Database Roadmap](database-middle-roadmap.md) mục 7 |
+| Read replica, replication lag | [Database Roadmap](database-middle-roadmap.md) mục 9 |
+| Partitioning vs sharding | [Database Roadmap](database-middle-roadmap.md) mục 8 và 14 |
+| MongoDB vs PostgreSQL chọn cái nào | [Database Roadmap](database-middle-roadmap.md) mục 15 |
+| REST hay gRPC, khi nào dùng cái nào | [gRPC Notes](grpc-middle-notes.md) mục 2 |
+| Message bị xử lý hai lần | [Idempotency](idempotency/README.md), [EDA Notes](event-driven-architecture.md) |
+| Dual write, transactional outbox | [EDA Notes](event-driven-architecture.md) |
+| At-least-once, ordering, DLQ, poison message | [RabbitMQ Notes](rabbitmq-middle-notes.md) |
+| JWT hết hạn, logout mọi thiết bị | [JWT & Session Notes](jwt-session-middle-notes.md) |
+| Rate limit chọn thuật toán nào | [Redis Notes](redis-middle-notes.md) mục 1, [Production Backend Concepts](production-backend-concepts.md) |
 
 ---
 
