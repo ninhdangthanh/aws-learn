@@ -60,6 +60,8 @@ Concept nên nắm thêm trong nhóm này:
 | [JWT And Session Middle Notes](jwt-session-middle-notes.md) | JWT/session production: blacklist, token versioning, refresh token rotation, revoke, multi-device sessions |
 | [Rate Limit](../rate-limit) | Concept, use case, edge case production, 5 thuật toán phổ biến và code Go: fixed window, sliding window log/counter, token bucket, leaky bucket |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
+| [CQRS Demo](cqrs-demo/README.md) | Demo Go nhỏ: tách write model và read model, nối nhau bằng event; không DB, không saga |
+| [Saga Demo](saga-demo/README.md) | Demo Go nhỏ: saga orchestration, nghiệp vụ nhiều bước xuyên service và compensating action khi fail giữa chừng |
 | [Event-Driven Architecture Notes](event-driven-architecture.md) | EDA chuyên sâu: event vs command, event notification/state transfer/sourcing, CQRS, choreography vs orchestration, delivery guarantee, ordering, idempotent consumer, outbox, schema evolution, chọn broker, failure mode |
 
 Concept nên nắm thêm trong nhóm này:

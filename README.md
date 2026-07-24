@@ -22,8 +22,6 @@ Each demo deliberately isolates **one** concept — nothing is mixed in, so the 
 
 | Directory | What's inside |
 |---|---|
-| [cqrs-demo/](cqrs-demo/README.md) | CQRS: separate write and read models joined by events. No DB, no saga — just the model split |
-| [saga-demo/](saga-demo/README.md) | Saga orchestration: a multi-step business flow across services, with compensating actions when a step fails midway |
 | [go-circuit-breaker-demo/](go-circuit-breaker-demo/README.md) | Circuit breaker using `sony/gobreaker`: an order service calling a payment gateway, walking through all three states (closed/open/half-open) across 6 scenarios |
 | [idempotency/](idempotency/README.md) | Idempotency lab covering the three places it usually shows up: HTTP APIs with side effects, queue consumers, and external providers. Go + PostgreSQL + Redis with `docker-compose` and migrations |
 | [queueEdgeCases/](queueEdgeCases/readme.md) | RabbitMQ consumer edge cases: out-of-order messages, duplicate delivery, and safe retries via delay queue + DLQ |

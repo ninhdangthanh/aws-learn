@@ -422,7 +422,7 @@ Tương đương `UPDATE ... WHERE stock >= ?` bên SQL. `$inc`, `$push`, `$pull
 
 **5. Idempotency key** — thao tác chạy lại không tạo hậu quả trùng, nên retry an toàn mà không cần rollback.
 
-**6. Saga / compensating transaction** — với luồng xuyên nhiều collection hoặc nhiều service, thay vì rollback thì chạy hành động bù trừ. Đã hủy thanh toán thì hoàn tiền, đã trừ kho thì cộng lại. Bạn có sẵn ví dụ ở [saga-demo](../saga-demo/README.md).
+**6. Saga / compensating transaction** — với luồng xuyên nhiều collection hoặc nhiều service, thay vì rollback thì chạy hành động bù trừ. Đã hủy thanh toán thì hoàn tiền, đã trừ kho thì cộng lại. Bạn có sẵn ví dụ ở [saga-demo](saga-demo/README.md).
 
 **7. Outbox pattern + eventual consistency** — ghi tài liệu chính kèm event vào cùng một document hoặc collection outbox, rồi để worker phát event. Chấp nhận dữ liệu ở các collection khác đồng bộ trễ vài trăm ms.
 
