@@ -47,6 +47,280 @@ Index không chỉ là "tạo index cho cột hay query". Middle level cần hi�
 
 ---
 
+## 2.1. Compound index hoạt động thế nào (phần hay bị hỏi sâu)
+
+### Cấu trúc: index là một danh sách đã sort theo bộ (tuple)
+
+Với index `(A, B, C)`, database **không** tạo 3 index riêng. Nó tạo **một** cây B-tree, trong đó mỗi entry là bộ giá trị `(A, B, C)` được sort theo thứ tự: sort theo `A` trước, `A` bằng nhau thì sort theo `B`, `B` bằng nhau thì sort theo `C`.
+
+Ví dụ index `(tenant_id, status, created_at)`:
+
+```
+(1, 'paid',    2024-01-05) -> row#12
+(1, 'paid',    2024-03-20) -> row#88
+(1, 'pending', 2024-01-02) -> row#40
+(1, 'pending', 2024-02-11) -> row#7
+(2, 'paid',    2024-01-09) -> row#51
+(2, 'pending', 2024-01-01) -> row#33
+```
+
+Hình dung theo dạng cây phân cấp cho dễ nhớ. Với `CREATE INDEX idx_user ON users(country, city, age)`:
+
+```
+VN
+ ├── HCM
+ │    ├── 20
+ │    └── 22
+ └── HN
+      └── 18
+US
+ └── NY
+      └── 30
+```
+
+Muốn xuống tầng `city` thì bắt buộc phải đi qua tầng `country` trước. Muốn xuống `age` thì phải qua cả `country` và `city`. Đây chính là lý do vật lý của leftmost prefix rule — **không có đường tắt nhảy thẳng vào tầng giữa**.
+
+Giống hệt danh bạ sort theo `(họ, tên, ngày sinh)`. Biết họ → nhảy tới đúng vùng. Biết họ + tên → thu hẹp tiếp. Nhưng **chỉ biết tên mà không biết họ thì phải đọc cả cuốn danh bạ**.
+
+Đó chính là **leftmost prefix rule**: index chỉ seek được khi bạn cung cấp giá trị **liên tục từ cột trái nhất**.
+
+### Điểm quan trọng nhất: thứ tự viết trong `WHERE` KHÔNG quan trọng
+
+Đây là chỗ nhiều người hiểu sai. Với index `(A, B, C)`:
+
+```sql
+-- Hai query này HOÀN TOÀN GIỐNG NHAU với optimizer
+WHERE A = 1 AND B = 2 AND C = 3
+WHERE C = 3 AND B = 2 AND A = 1
+```
+
+Query planner tự sắp xếp lại điều kiện, nó không đọc `WHERE` theo thứ tự bạn gõ. Cái quan trọng là **TẬP cột nào xuất hiện trong `WHERE`**, không phải thứ tự chữ.
+
+Nên khi được hỏi "index `ABC` mà query `ACB` thì sao?" → nếu ý là **thứ tự viết** `A, C, B` thì câu trả lời là: **giống hệt `ABC`, index dùng đầy đủ cả 3 cột**. Nhưng nếu ý là query chỉ có `A` và `C` (thiếu `B`) thì mới là vấn đề thật, xem bảng dưới.
+
+### Bảng tra: index `(A, B, C)` phục vụ query nào
+
+| Query filter | Index dùng được không | Giải thích |
+|---|---|---|
+| `A = ?` | ✅ Tốt | Prefix `(A)`, seek đúng vùng |
+| `A = ? AND B = ?` | ✅ Rất tốt | Prefix `(A, B)` |
+| `A = ? AND B = ? AND C = ?` | ✅ Tốt nhất | Dùng cả 3 cột để seek |
+| `A = ? AND C = ?` | ⚠️ Một phần | Seek bằng `A`, còn `C` chỉ **lọc lại** trên các entry đã quét. Vẫn nhanh hơn seq scan nhưng quét nhiều entry thừa |
+| `B = ?` | ❌ Thường không | Thiếu leftmost `A` → seq scan hoặc full index scan |
+| `C = ?` | ❌ Thường không | Như trên |
+| `B = ? AND C = ?` | ❌ Thường không | Vẫn thiếu `A` |
+| `A = ? AND B > ? AND C = ?` | ⚠️ Dừng ở `B` | `B` là range → `C` không seek được nữa, chỉ filter |
+| `A > ? AND B = ?` | ⚠️ Dừng ở `A` | Range ở cột đầu → `B` không seek được |
+
+**Quy tắc gốc:** index seek theo các cột equality liên tiếp từ trái sang, **gặp cột range đầu tiên thì dừng lại** — các cột phía sau range chỉ còn dùng để filter, không giảm được phạm vi quét.
+
+### Trường hợp `A = ? AND C = ?` chi tiết hơn
+
+Đây là câu hỏi hay nhất trong nhóm này. Điều gì thực sự xảy ra:
+
+1. Index seek tới vùng `A = ?` (thu hẹp tốt).
+2. Trong vùng đó, các entry được sort theo `B` rồi mới tới `C` → giá trị `C` nằm rải rác, không liên tục.
+3. Database quét **toàn bộ** entry có `A = ?` và test `C = ?` trên từng entry.
+
+Chi phí phụ thuộc `A` lọc còn bao nhiêu row:
+
+* `A = 'tenant_9'` còn 200 row → quét 200 entry, chấp nhận được.
+* `A = 'tenant_9'` còn 2 triệu row → thảm họa, cần index `(A, C)` riêng.
+
+PostgreSQL gọi phần này là `Index Cond` (dùng để seek) vs `Filter` (lọc sau). Đọc `EXPLAIN ANALYZE` thấy `Rows Removed by Filter` lớn là dấu hiệu index sai thứ tự cột:
+
+```
+Index Scan using idx_a_b_c on orders
+  Index Cond: (a = 1)
+  Filter: (c = 3)
+  Rows Removed by Filter: 1998400   <-- đỏ, index không phù hợp query
+```
+
+**Ngoại lệ cần biết:** MySQL 8.0+ có **index skip scan** và PostgreSQL 18 cũng đã thêm skip scan cho B-tree. Khi cột bị bỏ qua có rất ít giá trị phân biệt (ví dụ `status` chỉ có 3 giá trị), optimizer có thể "nhảy" qua từng giá trị của cột đó rồi seek tiếp. Nhưng đây là tối ưu cơ hội, không nên thiết kế index dựa vào nó.
+
+### Quy tắc sắp thứ tự cột: ESR (Equality → Sort → Range)
+
+Đây là rule của MongoDB nhưng áp dụng đúng cho cả PostgreSQL/MySQL:
+
+1. **E**quality: các cột filter bằng `=` đặt trước.
+2. **S**ort: cột dùng cho `ORDER BY` đặt giữa.
+3. **R**ange: các cột `>`, `<`, `BETWEEN`, `IN` range đặt cuối.
+
+Ví dụ query:
+
+```sql
+SELECT * FROM orders
+WHERE tenant_id = ? AND status = ? AND created_at > ?
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Index đúng: `(tenant_id, status, created_at)`
+
+* `tenant_id`, `status` equality → seek chính xác.
+* `created_at` vừa phục vụ range vừa phục vụ `ORDER BY` → database đọc index theo chiều ngược và **dừng sau 20 row**, không cần sort.
+
+Index sai: `(created_at, tenant_id, status)` → seek theo range trước, phải quét rộng rồi filter lại.
+
+### Compound index và `ORDER BY`
+
+Index `(A, B, C)` phục vụ được `ORDER BY` khi thứ tự sort khớp prefix:
+
+| `ORDER BY` | Dùng index để sort? |
+|---|---|
+| `ORDER BY A` | ✅ |
+| `ORDER BY A, B` | ✅ |
+| `ORDER BY B` (không có `WHERE A = ?`) | ❌ |
+| `WHERE A = 1 ORDER BY B` | ✅ — `A` cố định nên trong vùng đó dữ liệu đã sort sẵn theo `B` |
+| `ORDER BY A ASC, B DESC` | ❌ trừ khi tạo index `(A ASC, B DESC)` |
+| `ORDER BY A DESC, B DESC` | ✅ — đọc index ngược chiều |
+
+Nếu `EXPLAIN` thấy node `Sort` kèm `external merge Disk`, tức là DB đang phải sort thủ công vì index không phục vụ được `ORDER BY`.
+
+### Index thừa: `(A, B, C)` đã bao gồm `(A)` và `(A, B)`
+
+Nếu đã có `(A, B, C)` thì **không cần** tạo thêm `(A)` hoặc `(A, B)` — chúng là prefix và được phục vụ sẵn. Tạo thêm chỉ tốn disk và làm chậm write.
+
+Ngược lại `(A, B, C)` **không** thay thế được `(B, C)` hay `(C)`.
+
+Query tìm index trùng lặp trong PostgreSQL:
+
+```sql
+SELECT indexrelid::regclass AS index_name,
+       idx_scan AS times_used
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
+
+`idx_scan = 0` sau vài tuần chạy production → index chưa từng được dùng, cân nhắc drop.
+
+### Cách thiết kế trong thực tế
+
+1. Gom các query thật hay chạy nhất (không thiết kế index theo tưởng tượng).
+2. Cột luôn xuất hiện trong mọi query đặt trái nhất — thường là `tenant_id`, `user_id`, `shop_id`.
+3. Áp ESR cho phần còn lại.
+4. Nếu query trả về ít cột, cân nhắc thêm covering: `INDEX (tenant_id, status) INCLUDE (total, currency)` để đạt `Index Only Scan`.
+5. Chạy `EXPLAIN ANALYZE` xác minh, đừng tin cảm giác.
+6. Tạo index trên bảng lớn ở production luôn dùng `CREATE INDEX CONCURRENTLY` (PostgreSQL) để không khóa write.
+
+### Câu trả lời gọn khi phỏng vấn
+
+> Compound index là một B-tree sort theo bộ giá trị các cột, sort theo cột trái trước rồi mới tới cột phải. Vì vậy nó chỉ seek hiệu quả khi query cung cấp prefix liên tục từ trái. Thứ tự viết điều kiện trong `WHERE` không quan trọng vì optimizer tự sắp lại — cái quan trọng là tập cột nào có mặt. Với index `(A, B, C)`: query `A`, `A+B`, `A+B+C` dùng tốt; query `A+C` chỉ seek được bằng `A` rồi filter `C` nên vẫn quét thừa; query chỉ có `B` hoặc `C` thì không dùng được. Ngoài ra index dừng seek ở cột range đầu tiên, nên tôi sắp cột theo ESR: equality trước, sort, rồi range. Tôi luôn xác minh bằng `EXPLAIN ANALYZE`, nhìn `Index Cond` vs `Filter` và `Rows Removed by Filter`.
+
+---
+
+## 2.2. Khi nào nên dùng compound index?
+
+Câu hỏi thiết kế đi kèm câu trên. Bẫy của nó nằm ở chỗ ít người nghĩ tới: **compound index cạnh tranh với phương án tạo nhiều single-column index**, chứ không phải cạnh tranh với "không có index".
+
+### Câu hỏi gốc: một index `(A, B)` hay hai index `(A)` và `(B)`?
+
+Với query `WHERE a = 1 AND b = 2`:
+
+**Hai single-column index** — database phải làm bốn bước: quét index `(A)` lấy tập id thoả `a=1`, quét index `(B)` lấy tập id thoả `b=2`, giao hai tập lại, rồi mới đọc bảng. PostgreSQL gọi là `BitmapAnd`, MySQL gọi là index merge.
+
+```
+Bitmap Heap Scan on orders
+  -> BitmapAnd
+       -> Bitmap Index Scan on idx_a   (đọc 50.000 entry)
+       -> Bitmap Index Scan on idx_b   (đọc 80.000 entry)
+```
+
+**Một compound index `(A, B)`** — seek thẳng tới đúng vùng, đọc đúng số entry cần.
+
+```
+Index Scan using idx_a_b on orders
+  Index Cond: (a = 1 AND b = 2)       (đọc 300 entry)
+```
+
+Compound thắng vì nó tận dụng được **tính sort theo cả hai cột**. Hai index riêng chỉ biết sort theo một cột mỗi cái, nên phải làm việc thừa rồi giao lại. Trong thực tế chênh lệch thường 5-50 lần, và với MySQL còn tệ hơn vì index merge của InnoDB khá yếu, optimizer nhiều khi bỏ qua luôn và chọn scan một index rồi filter phần còn lại.
+
+> Đây là ý cần nói ra khi phỏng vấn: **nhiều single-column index không cộng lại thành một compound index.** Rất nhiều người tưởng có index trên cả `a` và `b` là đủ cho query lọc theo cả hai.
+
+### 5 trường hợp nên dùng compound index
+
+**1. Query luôn lọc nhiều cột cùng lúc**
+
+Đây là lý do phổ biến nhất. Nếu 90% query đều có dạng `WHERE tenant_id = ? AND status = ?` thì compound `(tenant_id, status)` là đúng, không phải hai index rời.
+
+**2. Hệ multi-tenant — gần như luôn cần**
+
+Mọi query đều bắt đầu bằng `tenant_id`/`shop_id`/`user_id`. Cột này nên đứng đầu mọi index, vì nó xuất hiện trong mọi query và cắt dữ liệu xuống còn phần của một tenant ngay từ bước đầu.
+
+```sql
+CREATE INDEX idx_orders_tenant_status_created
+ON orders (tenant_id, status, created_at DESC);
+```
+
+**3. Filter kết hợp với sort — trường hợp bị đánh giá thấp nhất**
+
+```sql
+WHERE tenant_id = ? AND status = 'pending'
+ORDER BY created_at DESC LIMIT 20
+```
+
+Index `(tenant_id, status, created_at)` không chỉ giúp filter mà còn khiến dữ liệu trong vùng đó **đã sort sẵn** theo `created_at`. Database đọc 20 dòng đầu rồi dừng, không cần sort gì cả.
+
+Nếu chỉ có index `(tenant_id, status)`, database vẫn filter nhanh nhưng phải lôi toàn bộ 200.000 dòng pending lên rồi sort để lấy 20 dòng — đây thường là nguyên nhân thật của một API "đã có index rồi mà vẫn chậm". Dấu hiệu trong plan là node `Sort` kèm `external merge Disk`.
+
+**4. Covering index — tránh hẳn việc đọc bảng**
+
+Nếu index chứa đủ mọi cột query cần thì database không phải quay lại bảng chính, đạt `Index Only Scan`.
+
+```sql
+CREATE INDEX idx_cover ON orders (tenant_id, status) INCLUDE (total, currency);
+```
+
+Cột trong `INCLUDE` không tham gia sort nên không ảnh hưởng leftmost prefix, chỉ được mang theo để đọc. Dùng khi query trả về ít cột và chạy rất nhiều lần.
+
+**5. Ràng buộc unique trên tổ hợp cột**
+
+```sql
+CREATE UNIQUE INDEX idx_user_coupon ON coupon_usages (user_id, coupon_id);
+```
+
+Ở đây compound index không phục vụ tốc độ mà phục vụ tính đúng đắn — chặn một user dùng trùng một mã giảm giá, kể cả khi hai request đến đồng thời.
+
+### 4 trường hợp KHÔNG nên
+
+**1. Các cột được query độc lập với nhau**
+
+Nếu lúc thì tìm theo `email`, lúc khác tìm theo `phone`, không bao giờ tìm cả hai cùng lúc → hai index riêng. Compound `(email, phone)` sẽ vô dụng với query chỉ có `phone`.
+
+**2. Cột đầu đã đủ chọn lọc**
+
+Nếu `WHERE user_id = ? AND is_active = true` mà mỗi user chỉ có khoảng 20 dòng, thì index `(user_id)` đã thu về 20 dòng — filter thêm `is_active` trên 20 dòng là chuyện vặt. Thêm cột thứ hai chỉ làm index to hơn mà gần như không nhanh hơn.
+
+Quy tắc: **thêm cột vào index chỉ đáng khi nó cắt được đáng kể số dòng còn lại.** Từ 1 triệu xuống 20 dòng là đáng; từ 20 xuống 15 dòng thì không.
+
+**3. Bảng write-heavy mà read không quan trọng**
+
+Bảng log, event, audit ghi liên tục nhưng hiếm khi query. Mỗi index thêm vào là thêm chi phí cho mọi `INSERT`. Compound index nhiều cột còn to hơn và tốn hơn index một cột.
+
+**4. Index đã tồn tại phục vụ được rồi**
+
+Nếu đã có `(A, B, C)` thì không cần `(A)` hay `(A, B)` — chúng là prefix. Rất hay gặp tình trạng bảng có 12 index mà một nửa là prefix của nhau, khiến write chậm vô ích.
+
+### Quy trình quyết định
+
+1. Liệt kê các query thật hay chạy nhất trên bảng đó, kèm tần suất.
+2. Nhóm các query có chung tập cột filter.
+3. Với mỗi nhóm, xếp cột theo ESR: equality → sort → range.
+4. Kiểm tra index hiện có đã phục vụ được nhóm đó chưa (kể cả dưới dạng prefix).
+5. Cân số index trên bảng — thường **5-6 index là ngưỡng nên dừng lại xem xét**. Nếu vượt, tìm cách gộp: một compound rộng thường phục vụ được nhiều query hơn vài index hẹp, vì nó phủ luôn mọi prefix của nó.
+6. Xác minh bằng `EXPLAIN ANALYZE` trên dữ liệu ở quy mô thật, không phải trên bảng test 100 dòng.
+
+### Câu trả lời gọn khi phỏng vấn
+
+> Tôi dùng compound index khi các query thường xuyên lọc nhiều cột cùng lúc, hoặc lọc kết hợp với sort. Điểm quan trọng là nhiều single-column index không thay thế được một compound index: với `WHERE a = ? AND b = ?`, hai index riêng buộc database phải quét cả hai rồi giao tập kết quả lại bằng BitmapAnd, trong khi compound `(a, b)` seek thẳng tới đúng vùng — thường nhanh hơn nhiều lần.
+>
+> Ba trường hợp tôi gần như luôn dùng: hệ multi-tenant với `tenant_id` đứng đầu mọi index; query filter kèm `ORDER BY ... LIMIT`, vì index sort sẵn giúp bỏ hẳn bước sort; và covering index để đạt Index Only Scan cho query chạy rất nhiều.
+>
+> Ngược lại tôi không dùng khi các cột được query độc lập nhau, khi cột đầu đã đủ chọn lọc nên thêm cột không cắt thêm được bao nhiêu dòng, hoặc trên bảng write-heavy mà read không quan trọng. Nguyên tắc chung là index phải thiết kế theo query pattern thật, và mỗi index thêm vào đều bắt mọi write trả giá — nên tôi cũng định kỳ rà `pg_stat_user_indexes` để drop index không ai dùng.
+
+---
+
 ## 3. Transaction - Nền tảng bạn đã có, nối tiếp sang consistency
 
 Transaction bảo vệ dữ liệu bằng ACID:
@@ -214,11 +488,169 @@ MVCC cho phép reader và writer không nhất thiết block nhau bằng cách l
 
 ### Isolation Level
 
-*   **Read Committed:** Mỗi câu query chỉ thấy dữ liệu đã commit trước thời điểm query chạy. Phổ biến, cân bằng tốt.
-*   **Repeatable Read:** Trong cùng transaction, đọc lại cùng dữ liệu sẽ thấy cùng snapshot. Giảm non-repeatable read.
+*   **Read Committed:** Mỗi câu query chỉ thấy dữ liệu đã commit trước thời điểm query chạy. Phổ biến, cân bằng tốt. Mặc định của PostgreSQL.
+*   **Repeatable Read:** Trong cùng transaction, đọc lại cùng dữ liệu sẽ thấy cùng snapshot. Giảm non-repeatable read. Mặc định của MySQL InnoDB.
 *   **Serializable:** Mạnh nhất, gần như các transaction chạy tuần tự. An toàn hơn nhưng dễ conflict/retry hơn.
 
 **Mục tiêu Middle:** Biết chọn cơ chế lock phù hợp cho inventory, wallet, booking slot, coupon usage, order state transition.
+
+---
+
+## 6.1. Race condition và isolation anomalies (nhóm câu hỏi rất hay bị đào sâu)
+
+Đây là nhóm câu phân loại rõ nhất giữa người đã xử lý production và người mới đọc lý thuyết. Dạng hỏi điển hình: *"Hai request cùng lúc đặt chiếc vé cuối cùng, làm sao để không bán trùng?"*, *"Tại sao đã dùng transaction rồi mà vẫn bị oversell?"*
+
+Câu chốt cần hiểu: **transaction không tự động chống được race condition.** `BEGIN/COMMIT` cho bạn atomicity, không cho bạn mutual exclusion. Muốn chống race phải chọn đúng cơ chế lock hoặc đúng isolation level.
+
+### 5 anomaly cần phân biệt
+
+**1. Dirty read** — đọc được dữ liệu chưa commit của transaction khác. Nếu transaction kia rollback thì bạn đã đọc dữ liệu chưa từng tồn tại. PostgreSQL và MySQL InnoDB không bao giờ cho phép ở mọi isolation level thực dụng, nên đây gần như chỉ là câu hỏi lý thuyết.
+
+**2. Non-repeatable read** — đọc cùng một dòng hai lần trong một transaction, ra hai kết quả khác nhau vì transaction khác đã commit ở giữa.
+
+```
+T1: SELECT price FROM products WHERE id=1;   -- 100
+T2: UPDATE products SET price=120 WHERE id=1; COMMIT;
+T1: SELECT price FROM products WHERE id=1;   -- 120  ← đổi giữa chừng
+```
+
+**3. Phantom read** — chạy lại cùng một query theo điều kiện, số **dòng** trả về khác nhau vì transaction khác đã `INSERT`.
+
+```
+T1: SELECT count(*) FROM bookings WHERE room_id=5;  -- 3
+T2: INSERT INTO bookings (room_id) VALUES (5); COMMIT;
+T1: SELECT count(*) FROM bookings WHERE room_id=5;  -- 4  ← xuất hiện dòng mới
+```
+
+**4. Lost update** — đây mới là cái gây thiệt hại thật, và là cái hay gặp nhất trong code thực tế.
+
+```
+T1: SELECT balance FROM wallets WHERE id=1;   -- đọc 100
+T2: SELECT balance FROM wallets WHERE id=1;   -- đọc 100
+T1: UPDATE wallets SET balance = 100 - 30;    -- ghi 70
+T2: UPDATE wallets SET balance = 100 - 50;    -- ghi 50  ← đè mất giao dịch của T1
+```
+
+Trừ 30 rồi trừ 50 từ 100, đúng ra phải còn 20, nhưng kết quả là 50. Mất 30 nghìn. **Read Committed không chặn được lỗi này** — và Read Committed là mặc định của PostgreSQL, nên rất nhiều code production đang có sẵn lỗ hổng này mà không biết.
+
+Mấu chốt là pattern **read-modify-write trong application**: đọc giá trị lên code, tính toán, rồi ghi lại. Khoảng thời gian giữa đọc và ghi chính là cửa sổ race.
+
+**5. Write skew** — tinh vi nhất, và là câu hỏi ăn điểm nếu trả lời được. Hai transaction đọc cùng một tập dữ liệu, mỗi cái update **một dòng khác nhau**, mỗi cái xét riêng đều hợp lệ, nhưng kết quả tổng hợp vi phạm business rule.
+
+Ví dụ kinh điển — quy định phải luôn có ít nhất 1 bác sĩ trực:
+
+```
+Đang có 2 bác sĩ trực: An và Bình. Cả hai cùng xin nghỉ.
+
+T1 (An):   SELECT count(*) FROM oncall WHERE on_duty=true;  -- 2, ok còn dư
+T2 (Bình): SELECT count(*) FROM oncall WHERE on_duty=true;  -- 2, ok còn dư
+T1: UPDATE oncall SET on_duty=false WHERE name='An';    COMMIT;
+T2: UPDATE oncall SET on_duty=false WHERE name='Binh';  COMMIT;
+
+→ Còn 0 bác sĩ trực. Cả hai transaction đều "đúng" khi xét riêng.
+```
+
+Không có lost update ở đây vì hai bên ghi hai dòng khác nhau, nên `SELECT FOR UPDATE` trên dòng của chính mình cũng không cứu được. Các biến thể thực tế: đặt hai lịch họp trùng phòng, hai người cùng dùng nốt lượt cuối của mã giảm giá theo tổng số lượt, rút tiền từ hai tài khoản chung của một hạn mức.
+
+**Cách chữa write skew:** chỉ có `SERIALIZABLE`, hoặc "materialize conflict" — tạo một dòng đại diện cho ràng buộc (ví dụ dòng `shift_id` trong bảng `shifts`) rồi `SELECT FOR UPDATE` lên chính dòng đó để buộc hai transaction phải tranh cùng một lock.
+
+### Bảng tra: isolation level chặn được anomaly nào
+
+| Anomaly | Read Committed | Repeatable Read | Serializable |
+|---|---|---|---|
+| Dirty read | ✅ Chặn | ✅ Chặn | ✅ Chặn |
+| Non-repeatable read | ❌ | ✅ Chặn | ✅ Chặn |
+| Phantom read | ❌ | ⚠️ Tuỳ DB (xem dưới) | ✅ Chặn |
+| Lost update | ❌ **Không chặn** | ⚠️ Phát hiện và abort (PG), chặn (MySQL) | ✅ Chặn |
+| Write skew | ❌ | ❌ **Không chặn** | ✅ Chặn |
+
+**Khác biệt giữa PostgreSQL và MySQL — chỗ hay bị hỏi vặn:**
+
+* **PostgreSQL Repeatable Read** thực chất là snapshot isolation, và nó **chặn luôn phantom read**, mạnh hơn chuẩn SQL quy định. Khi hai transaction cùng update một dòng, cái thứ hai bị huỷ với lỗi `could not serialize access due to concurrent update` — nên **application bắt buộc phải xử lý retry**, nếu không sẽ thành lỗi 500 cho user.
+* **MySQL InnoDB Repeatable Read** dùng gap lock/next-key lock nên cũng chặn được phần lớn phantom, nhưng cơ chế khác hẳn: nó chặn bằng khoá thay vì abort. Đổi lại gap lock là nguồn gây deadlock rất phổ biến trong MySQL.
+* **PostgreSQL Serializable** dùng SSI (Serializable Snapshot Isolation), không khoá đọc mà theo dõi dependency rồi abort transaction gây vòng lặp. Chi phí thấp khi ít xung đột, nhưng lại càng bắt buộc phải có retry loop.
+
+> Rút ra: dùng isolation level cao hơn Read Committed thì **luôn phải viết retry loop**. Đây là điểm nhiều người quên và là câu hỏi hay được hỏi tiếp.
+
+### Ba cách chống race condition, chọn cái nào
+
+Lấy bài toán trừ tồn kho làm ví dụ chung.
+
+**Cách 1 — Atomic update có điều kiện (tốt nhất khi dùng được)**
+
+```sql
+UPDATE products
+SET stock = stock - 1
+WHERE id = 10 AND stock >= 1;
+```
+
+Kiểm tra `affected_rows`: bằng 0 nghĩa là hết hàng, khác 0 là trừ thành công.
+
+Điểm mấu chốt là **không đọc giá trị lên application rồi tính**. Phép trừ diễn ra ngay trong database, và một câu `UPDATE` đơn lẻ luôn giữ row lock ngầm, nên không có cửa sổ race. Chạy đúng ở cả Read Committed.
+
+* Ưu: nhanh nhất, đơn giản nhất, không cần retry, không cần transaction tường minh.
+* Nhược: chỉ dùng được khi logic đủ đơn giản để diễn đạt trong một câu SQL. Không dùng được nếu cần đọc nhiều bảng rồi mới quyết định.
+* **Đây nên là lựa chọn mặc định.** Rất nhiều người nhảy thẳng vào `SELECT FOR UPDATE` trong khi một câu `UPDATE` có guard đã giải quyết xong.
+
+**Cách 2 — Pessimistic lock (`SELECT ... FOR UPDATE`)**
+
+```sql
+BEGIN;
+SELECT stock FROM products WHERE id = 10 FOR UPDATE;  -- khoá dòng, request khác phải chờ
+-- logic phức tạp: kiểm tra khuyến mãi, hạn mức user, ghi log...
+UPDATE products SET stock = stock - 1 WHERE id = 10;
+INSERT INTO orders (...) VALUES (...);
+COMMIT;
+```
+
+* Ưu: đúng chắc chắn, dễ suy luận, xử lý được logic nhiều bước phức tạp.
+* Nhược: các request phải xếp hàng tuần tự trên cùng một dòng. Với sản phẩm hot flash sale thì đây thành nút cổ chai nghiêm trọng — 10.000 người tranh một dòng nghĩa là 10.000 người xếp hàng. Ngoài ra dễ deadlock nếu khoá nhiều dòng không theo thứ tự nhất quán.
+* Dùng khi: xung đột cao **và** logic phức tạp không gói được vào một câu UPDATE. Ví dụ trừ tiền ví kèm ghi sổ cái và kiểm tra hạn mức.
+* Biến thể hữu ích: `FOR UPDATE NOWAIT` để fail ngay thay vì chờ, `FOR UPDATE SKIP LOCKED` để bỏ qua dòng đang bị khoá — cái này cực hợp cho job queue trên database, nhiều worker cùng lấy việc mà không giẫm chân nhau.
+
+**Cách 3 — Optimistic lock (version)**
+
+```sql
+-- đọc: version = 7
+UPDATE products
+SET stock = stock - 1, version = version + 1
+WHERE id = 10 AND version = 7 AND stock >= 1;
+-- affected_rows = 0 → có người sửa trước, đọc lại và retry
+```
+
+* Ưu: không khoá gì cả, throughput cao khi xung đột thấp. Hợp với thao tác kéo dài qua nhiều request, ví dụ user mở form sửa rồi 5 phút sau mới bấm lưu — không thể giữ lock suốt 5 phút đó.
+* Nhược: **bắt buộc phải có retry loop** ở application, và khi xung đột cao thì retry liên tục còn tệ hơn xếp hàng. Cần giới hạn số lần retry.
+* Dùng khi: xung đột thấp, hoặc thao tác kéo dài không thể giữ lock.
+
+**Bảng chọn nhanh:**
+
+| Tình huống | Nên dùng |
+|---|---|
+| Trừ kho, tăng counter, logic một bước | Atomic `UPDATE` có guard |
+| Trừ tiền ví kèm ghi sổ cái, nhiều bước | `SELECT FOR UPDATE` |
+| User sửa form, thao tác kéo dài nhiều request | Optimistic version |
+| Worker lấy job từ bảng | `FOR UPDATE SKIP LOCKED` |
+| Ràng buộc trên tập dòng (write skew) | `SERIALIZABLE` hoặc materialize conflict |
+| Chống tạo trùng đơn hàng | `UNIQUE` constraint + idempotency key |
+| Cần khoá xuyên nhiều service | Distributed lock (Redis/etcd) + fencing token |
+
+> Đừng quên phương án đơn giản nhất: **unique constraint**. Với các bài toán dạng "không được tạo hai bản ghi giống nhau" — một user chỉ dùng một mã giảm giá một lần, một ghế chỉ được đặt một lần — thì `UNIQUE (user_id, coupon_id)` để database tự chặn là cách rẻ và chắc nhất, không cần lock gì cả. Hai request đồng thời thì một cái sẽ nhận lỗi unique violation, application chỉ cần bắt lỗi đó và trả về thông báo phù hợp.
+
+### Về distributed lock
+
+Câu hỏi hay đi kèm: *"Sao không dùng Redis lock cho nhanh?"*
+
+> Nếu dữ liệu nằm trong cùng một database thì lock của chính database luôn đáng tin hơn Redis lock, vì nó gắn liền với transaction — commit hay rollback thì lock cũng được giải phóng đúng lúc. Redis lock chỉ cần thiết khi phải điều phối trên tài nguyên nằm ngoài database, ví dụ đảm bảo chỉ một instance chạy một cron job, hoặc gọi một API bên ngoài đúng một lần.
+>
+> Redis lock cũng không an toàn tuyệt đối: nếu process giữ lock bị GC pause hoặc treo lâu hơn TTL, lock hết hạn và một process khác lấy được, thành ra hai process cùng chạy. Chống lại bằng fencing token — mỗi lần cấp lock tăng một số thứ tự, và tài nguyên đích từ chối các thao tác mang token cũ hơn.
+
+### Câu trả lời gọn khi phỏng vấn
+
+> Transaction không tự chống được race condition — nó cho atomicity chứ không cho mutual exclusion. Lỗi hay gặp nhất là lost update, xảy ra khi code đọc giá trị lên application, tính toán rồi ghi lại; Read Committed là mặc định của PostgreSQL và không chặn được lỗi này.
+>
+> Cách xử lý tôi ưu tiên theo thứ tự: nếu logic đủ đơn giản thì dùng một câu `UPDATE` có điều kiện như `SET stock = stock - 1 WHERE id = ? AND stock >= 1` rồi kiểm tra affected rows — không đọc lên app thì không có cửa sổ race. Nếu logic nhiều bước thì `SELECT FOR UPDATE`, chấp nhận request xếp hàng trên dòng nóng. Nếu thao tác kéo dài qua nhiều request thì optimistic locking bằng version kèm retry. Với bài toán "không được trùng" thì unique constraint là cách rẻ và chắc nhất.
+>
+> Riêng write skew thì lock từng dòng không cứu được, vì hai transaction ghi hai dòng khác nhau nhưng cùng vi phạm một ràng buộc trên tập dữ liệu — chỗ này phải dùng `SERIALIZABLE` hoặc tạo một dòng đại diện cho ràng buộc để hai bên cùng tranh một lock. Và khi dùng isolation level cao hơn Read Committed thì luôn phải viết retry loop, vì PostgreSQL sẽ abort transaction bị xung đột.
 
 ---
 

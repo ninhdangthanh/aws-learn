@@ -38,7 +38,12 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 Concept nên nắm thêm trong nhóm này:
 
 * PostgreSQL: `EXPLAIN ANALYZE`, composite index, row/table lock, `SELECT ... FOR UPDATE`, MVCC, isolation level, read replica lag, online migration, connection pool exhaustion.
+* Race condition/isolation: lost update và vì sao Read Committed không chặn, write skew và vì sao `FOR UPDATE` không cứu được, phantom read, khác biệt Repeatable Read giữa PostgreSQL và MySQL, chọn giữa atomic `UPDATE` có guard / `FOR UPDATE` / optimistic version / unique constraint, `SKIP LOCKED` cho job queue.
+* Compound index: B-tree sort theo tuple, leftmost prefix rule, thứ tự viết `WHERE` không quan trọng nhưng tập cột thì có, index dừng seek ở cột range đầu tiên, quy tắc ESR, `Index Cond` vs `Filter` khi đọc plan.
+* Khi nào dùng compound index: một compound `(A,B)` vs hai index rời `(A)` và `(B)` và vì sao BitmapAnd chậm hơn, multi-tenant, filter kèm `ORDER BY LIMIT`, covering index, unique trên tổ hợp cột; khi nào không nên.
 * Redis/cache: cache-aside, invalidation, TTL jitter, hot key, stampede, penetration, JWT blacklist, sorted-set scheduler, Redis Streams, distributed lock và fencing token.
+* Redis interview: tại sao nhanh (RAM + data structure + single-thread), giảm tải DB bằng cách nào và bằng con số nào, cache cái gì với TTL bao nhiêu, phân biệt penetration/breakdown/avalanche, Redis down thì hệ thống ra sao.
+* MongoDB transaction: Mongo có ACID transaction từ 4.0 nhưng ít dùng vì embedding làm single-document write đã atomic sẵn; chi phí thật (replica set bắt buộc, giới hạn 60s, cache pressure, oplog, two-phase commit xuyên shard, app phải tự retry); các cơ chế thay thế: atomic operator, unique index, optimistic version, idempotency key, saga.
 * MongoDB: MongoDB vs PostgreSQL trade-off, schema governance, aggregation memory limit, unbounded array, document relocation, write concern, replica lag.
 * Elasticsearch: inverted index vs `LIKE`, analyzer (index và query cùng analyzer), `text` vs `keyword`, query context vs filter context, BM25 (TF/IDF/field length), aggregation bucket/metric, ES là secondary store, sync DB→ES (dual write/outbox/CDC), deep pagination với `search_after`, reindex zero-downtime bằng alias.
 
@@ -76,6 +81,7 @@ Concept nên nắm thêm trong nhóm này:
 | [Scale System Questions](scale_system_question.md) | DNS, CDN, WAF, load balancer, API gateway, stateless app, autoscaling, cache, queue, database, sharding, observability |
 | [Production Backend Concepts](production-backend-concepts.md) | Checklist failure mode theo từng topic để đưa vào system design answer |
 | [Production Scale Metrics](production-scale-metrics.md) | Map số liệu production theo CV: users, CCU, RPS/TPS, latency, data volume, throughput và mức độ bạn trực tiếp chạm |
+| [Backend Classic Questions](backend-classic-questions.md) | Câu hỏi tình huống kinh điển: API chậm, DB CPU 100%, connection pool, traffic tăng 10x, khi nào thêm index, khi nào dùng queue, sync vs async, service downstream chậm |
 
 Khi luyện system design, luôn đi theo thứ tự:
 
