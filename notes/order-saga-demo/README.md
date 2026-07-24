@@ -1,5 +1,13 @@
 # Order Saga Demo — CQRS + Saga + Circuit Breaker
 
+> **Muốn học từng pattern riêng lẻ trước?** Mỗi demo dưới đây dạy đúng một khái niệm, không cần biết hai cái còn lại:
+>
+> - [`../circuitbreaker-demo`](../circuitbreaker-demo) — ngừng gọi service đang chết. Không domain, không event.
+> - [`../saga-demo`](../saga-demo) — 3 bước, fail giữa chừng thì bù trừ ngược. Không event bus, không CQRS.
+> - [`../cqrs-demo`](../cqrs-demo) — tách đường ghi/đọc, nhiều projection từ một event. Không saga, không breaker.
+>
+> Đọc xong 3 cái đó rồi quay lại đây để thấy chúng **phối hợp** với nhau thế nào.
+
 Demo Go nhỏ, chạy trong 1 process, toàn bộ dữ liệu in-memory — minh hoạ 3 pattern quen thuộc trong backend cùng lúc trên một luồng nghiệp vụ đặt hàng đơn giản (tạo order → giữ hàng trong kho → thu tiền → xác nhận).
 
 Không có HTTP, không có DB thật, không docker-compose. Mục đích là đọc code + chạy `go run .` để thấy rõ luồng, không phải một service production.
