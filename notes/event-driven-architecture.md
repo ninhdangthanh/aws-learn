@@ -4,7 +4,7 @@ File này gom kiến thức Event-Driven Architecture đủ sâu cho phỏng v�
 
 EDA không chỉ là "đẩy event vào queue". Cần hiểu rõ event khác command/message ở đâu, ai chịu trách nhiệm state, làm sao đảm bảo không mất và không xử lý trùng, và khi nào KHÔNG nên dùng.
 
-Liên quan: [RabbitMQ Middle Notes](rabbitmq-middle-notes.md), [Backend Communication Roadmap](backend-communication-roadmap.md), [Notebook - Architecture](notebook.md) mục 5, và code idempotent consumer trong `notes/idempotency`.
+Liên quan: [RabbitMQ Middle Notes](rabbitmq-middle-notes.md), [Backend Communication Roadmap](backend-communication-roadmap.md), [Notebook - Architecture](notebook.md) mục 5, và code idempotent consumer trong [`idempotency/`](../idempotency/README.md).
 
 ---
 
@@ -162,7 +162,7 @@ Cách làm:
 3. **Thao tác vốn idempotent**: `SET status = 'paid'` (không phải `balance = balance + 10`), hoặc upsert theo key.
 4. **Atomic giữa side-effect và ghi dedup**: lý tưởng là xử lý nghiệp vụ và ghi "đã xử lý event này" trong **cùng một transaction**, để tránh trường hợp làm side-effect xong crash trước khi ghi dedup.
 
-Chi tiết code Go về idempotency (Redis + Postgres unique constraint) nằm trong `notes/idempotency`.
+Chi tiết code Go về idempotency (Redis + Postgres unique constraint) nằm trong [`idempotency/`](../idempotency/README.md).
 
 Lưu ý side-effect ngoài DB (gửi mail, gọi payment): những cái này khó rollback, nên cần dedup key trước khi gọi, hoặc dùng provider hỗ trợ idempotency key.
 

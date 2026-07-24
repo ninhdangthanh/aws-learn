@@ -298,7 +298,7 @@ DLX là exchange, DLQ là queue. Hai khái niệm này hay bị gọi lẫn.
 
 > Có lab Go tái hiện đúng pattern này (retry 10s → 30s → DLQ, dùng
 > default exchange, DLQ để manual check) ở
-> [`queueEdgeCases/readme.md`](queueEdgeCases/readme.md#7-lab-tái-hiện-retry-10s--30s--dlq-go).
+> [`queueEdgeCases/readme.md`](../queueEdgeCases/readme.md#7-lab-tái-hiện-retry-10s--30s--dlq-go).
 
 Không nên retry bằng cách `nack(requeue=true)` liên tục. Pattern phổ biến là dùng retry queue có TTL.
 
@@ -478,7 +478,7 @@ CREATE TABLE processed_events (
 * Nếu side effect là external API, dùng idempotency key ở external provider nếu có.
 * Duplicate message nên `ack`, không `nack`.
 
-Xem lab thực hành: [Idempotency Lab](idempotency/README.md).
+Xem lab thực hành: [Idempotency Lab](../idempotency/README.md).
 
 ---
 

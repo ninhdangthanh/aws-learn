@@ -180,7 +180,7 @@ Sửa xong phải chứng minh là đã sửa, và ngăn nó tái diễn:
 >
 > Điều cần lưu ý là phải xử lý cả trường hợp request trùng đến **đồng thời**, không chỉ tuần tự. Cách chắc chắn là insert bản ghi idempotency trong cùng transaction với thao tác nghiệp vụ — request thứ hai sẽ vi phạm unique constraint và rollback. Ngoài ra cần lưu cả trạng thái đang xử lý để request trùng biết là "đang chạy" chứ không phải "chưa từng chạy".
 >
-> Chi tiết hơn tôi có ghi trong [notes/idempotency](idempotency/README.md).
+> Chi tiết hơn tôi có ghi trong [notes/idempotency](../idempotency/README.md).
 
 ---
 
@@ -352,7 +352,7 @@ Các câu hay gặp nhưng nội dung nằm ở file chuyên đề, để đây 
 | SQL transaction vs MongoDB transaction, vì sao Mongo ít dùng | [MongoDB Notes](mongo_fnb.md) mục 11.1 |
 | Không dùng transaction thì thay bằng gì | [MongoDB Notes](mongo_fnb.md) mục 11.1 |
 | REST hay gRPC, khi nào dùng cái nào | [gRPC Notes](grpc-middle-notes.md) mục 2 |
-| Message bị xử lý hai lần | [Idempotency](idempotency/README.md), [EDA Notes](event-driven-architecture.md) |
+| Message bị xử lý hai lần | [Idempotency](../idempotency/README.md), [EDA Notes](event-driven-architecture.md) |
 | Dual write, transactional outbox | [EDA Notes](event-driven-architecture.md) |
 | At-least-once, ordering, DLQ, poison message | [RabbitMQ Notes](rabbitmq-middle-notes.md) |
 | JWT hết hạn, logout mọi thiết bị | [JWT & Session Notes](jwt-session-middle-notes.md) |

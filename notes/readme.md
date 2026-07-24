@@ -33,7 +33,7 @@ Thư mục này là bộ notes ôn phỏng vấn Middle Backend theo CV hiện t
 | [MongoDB F&B Notes](mongo_fnb.md) | Document model, embed/reference, hot document, aggregation, index, sharding, transaction, TTL, change stream |
 | [Production Backend Concepts](production-backend-concepts.md) | Các tình huống production dễ bị hỏi: pagination, idempotency, cache stampede, retry storm, online migration, read replica stale |
 | [Elasticsearch Middle Notes](elasticsearch-middle-notes.md) | Inverted index, analyzer, `text` vs `keyword`, query DSL (query vs filter context), BM25 relevance, aggregation, sync DB→ES, reindex bằng alias, edge case production |
-| [Elasticsearch Stack Implement Plan](elasticsearchStack/elasticsearch-implement-plan.md) | Plan dựng ES + Kibana bằng Docker và thực hành theo phase: index/mapping, query DSL, aggregation, dashboard, sync DB→ES |
+| [Elasticsearch Stack Implement Plan](../elasticsearchStack/elasticsearch-implement-plan.md) | Plan dựng ES + Kibana bằng Docker và thực hành theo phase: index/mapping, query DSL, aggregation, dashboard, sync DB→ES |
 
 Concept nên nắm thêm trong nhóm này:
 
@@ -58,7 +58,7 @@ Concept nên nắm thêm trong nhóm này:
 | [RabbitMQ Middle Notes](rabbitmq-middle-notes.md) | RabbitMQ đủ sâu cho Middle Backend: exchange types, prefetch, DLX/DLQ, retry, ordering, reliability, outbox |
 | [Backend Security Middle Notes](backend-security-middle.md) | Rainbow table, brute-force login, scraping/bot abuse, app-level DDoS, SQL/NoSQL injection, CORS, API key, webhook signature, file upload security |
 | [JWT And Session Middle Notes](jwt-session-middle-notes.md) | JWT/session production: blacklist, token versioning, refresh token rotation, revoke, multi-device sessions |
-| [Rate Limit](rate-limit) | Concept, use case, edge case production, 5 thuật toán phổ biến và code Go: fixed window, sliding window log/counter, token bucket, leaky bucket |
+| [Rate Limit](../rate-limit) | Concept, use case, edge case production, 5 thuật toán phổ biến và code Go: fixed window, sliding window log/counter, token bucket, leaky bucket |
 | [Notebook - Architecture](notebook.md) | Microservices, DDD, Saga, CQRS, EDA, circuit breaker, service discovery, API-led architecture, Kafka overview |
 | [Event-Driven Architecture Notes](event-driven-architecture.md) | EDA chuyên sâu: event vs command, event notification/state transfer/sourcing, CQRS, choreography vs orchestration, delivery guarantee, ordering, idempotent consumer, outbox, schema evolution, chọn broker, failure mode |
 
