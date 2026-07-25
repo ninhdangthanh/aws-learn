@@ -101,6 +101,19 @@ Concept nên nắm thêm trong nhóm này:
 
 ---
 
+## Infrastructure, container và AWS
+
+| File | Dùng để ôn |
+|---|---|
+| [Kubernetes Middle Notes](kubernetes-middle-notes.md) | K8s cho backend chạy trên EKS: Cluster/Control Plane/Node, Pod, Deployment/replica, Ingress + ALB, Helm `values.yaml`, câu trả lời "có kinh nghiệm K8s không" |
+
+Concept nên nắm thêm trong nhóm này:
+
+* Kubernetes: container orchestration, Control Plane vs Worker Node, Pod là đơn vị deploy nhỏ nhất, Deployment giữ đúng số replica + rolling update/rollback, Ingress route traffic từ ALB vào service.
+* EKS: AWS quản Control Plane, Node thường là EC2 instance, backend chỉ chỉnh Helm `values.yaml` (image tag, replicaCount, env) rồi deploy qua CI/CD.
+
+---
+
 ## Project pitch/deep dive
 
 | Project | Nên nhấn mạnh |

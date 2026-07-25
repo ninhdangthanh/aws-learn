@@ -152,6 +152,89 @@ Sửa xong phải chứng minh là đã sửa, và ngăn nó tái diễn:
 
 > Đầu tiên tôi làm rõ "chậm" là gì: chậm bao nhiêu, ở p50 hay p99, từ khi nào, với tất cả user hay một nhóm. p50 cao nghĩa là logic hoặc query chính có vấn đề; p50 thấp mà p99 cao thường là chờ tài nguyên như connection pool, lock hay GC. Tiếp theo tôi định vị bằng tracing hoặc log timing để biết thời gian mất ở app, DB, external call hay network — so cả thời gian client đo với thời gian server log. Khi đã biết tầng nào thì mới đi vào nguyên nhân: hay gặp nhất là N+1 query, thiếu index, offset pagination sâu, gọi API ngoài tuần tự không timeout, hoặc connection pool cạn. Sửa xong tôi đo lại p99 trên production và thêm alert cùng slow query log để lần sau phát hiện sớm. Nguyên tắc của tôi là đo trước rồi mới sửa — thêm cache khi chưa biết nguyên nhân chỉ là giấu vấn đề.
 
+### Câu trả lời khi đã xác định bottleneck là database
+
+> Nếu API chậm và tôi xác định bottleneck nằm ở database thì tôi sẽ xử lý theo từng bước.
+>
+> Đầu tiên tôi kiểm tra chính câu query trước, vì nhiều khi vấn đề không nằm ở database mà nằm ở cách mình viết query. Tôi xem có đang query dư dữ liệu không, có join không cần thiết không, hoặc có gặp vấn đề N+1 Query hay không. Nếu là N+1 Query thì tôi tối ưu bằng cách query theo batch, ví dụ dùng `IN` hoặc `JOIN`, thay vì query từng record trong một vòng lặp.
+>
+> Sau đó tôi dùng `EXPLAIN ANALYZE` để xem execution plan của câu query, kiểm tra database đang thực hiện Index Scan hay Sequential Scan. Nếu là Sequential Scan trên một bảng lớn thì tôi kiểm tra xem có thiếu index hay không.
+>
+> Nếu đã có index nhưng database vẫn không dùng thì tôi xem lại thiết kế index: thứ tự các cột trong composite index có phù hợp với điều kiện query không, hoặc độ selectivity của index có quá thấp khiến optimizer quyết định không dùng index.
+>
+> Khi thiết kế composite index thì tôi thường ưu tiên các cột theo thứ tự **Equality → Sort → Range**, tức là các điều kiện bằng (`=`) trước, sau đó là cột dùng để `ORDER BY`, cuối cùng mới đến các điều kiện dạng khoảng như `>`, `<`, `BETWEEN`.
+>
+> Nếu sau khi tối ưu query và index mà vẫn chưa đáp ứng được yêu cầu thì tôi cân nhắc các giải pháp ở mức kiến trúc, tùy theo bài toán:
+>
+> * **Materialized View** — nếu dữ liệu không cần realtime, lưu sẵn kết quả của các query phức tạp để tránh phải tính toán lại mỗi request.
+> * **Partitioning** — nếu bảng rất lớn và query thường filter theo thời gian hoặc một khóa cố định, để giảm lượng dữ liệu cần scan.
+> * **Read Replica** — nếu hệ thống có lượng đọc rất lớn, tách read và write để giảm tải cho database chính.
+> * **Redis cache** — nếu một dữ liệu được đọc rất thường xuyên nhưng cập nhật không nhiều, cache để giảm số request xuống database và cải thiện thời gian phản hồi.
+>
+> Redis ngoài việc cache còn có nhiều use case khác như lưu session, distributed lock, rate limiting, Pub/Sub hoặc chia sẻ state giữa nhiều service.
+
+### Câu trả lời khi write (ghi) chậm
+
+Phần trên là về **read**. Nhưng nếu một yêu cầu **write** bị chậm thì sao? Tư duy vẫn giống nhau: xác định bottleneck trước, rồi mới tối ưu — cache không giúp được cho write.
+
+> Nếu API ghi dữ liệu chậm thì đầu tiên tôi xác định thời gian đang mất ở đâu: phần business logic, database hay gọi sang service khác. Nếu bottleneck nằm ở database thì tôi kiểm tra một số nguyên nhân sau.
+
+**1. Kiểm tra câu lệnh ghi**
+
+Có đang insert/update từng record trong loop không? Có chuyển sang batch insert / bulk update được không? Việc này giảm rất nhiều round-trip xuống database.
+
+```go
+// ❌ N round-trip
+for _, item := range items {
+    db.Insert(item)
+}
+
+// ✔ 1 round-trip
+db.BulkInsert(items)
+```
+
+**2. Kiểm tra transaction**
+
+Transaction giữ lock quá lâu, chứa quá nhiều logic, hoặc gọi API khác bên trong sẽ làm write rất chậm. Nguyên tắc:
+
+* Transaction chỉ nên gồm các thao tác database cần thiết.
+* Không gọi HTTP, RabbitMQ hay Redis bên trong transaction nếu không cần.
+
+**3. Kiểm tra lock contention**
+
+Nhiều request cùng update một record nóng thì phải xếp hàng chờ lock:
+
+```sql
+UPDATE product
+SET quantity = quantity - 1
+WHERE id = 1
+```
+
+Hàng nghìn request cùng update một sản phẩm sẽ chờ lock. Cách xử lý: giảm contention, chia nhỏ dữ liệu (sharding/partitioning nếu phù hợp), hoặc thiết kế lại business flow (ví dụ tách row nóng thành nhiều bucket rồi cộng dồn).
+
+**4. Kiểm tra index**
+
+Điểm nhiều người bỏ sót: index giúp read nhanh hơn nhưng làm **write chậm hơn**, vì mỗi insert/update/delete database phải cập nhật tất cả index liên quan. Nếu bảng có quá nhiều index hoặc có index không còn dùng thì nên cân nhắc loại bỏ.
+
+**5. Nếu không cần đồng bộ (synchronous)**
+
+Nếu người dùng không cần kết quả ngay thì chuyển sang xử lý bất đồng bộ — API lưu request và publish ra queue, worker xử lý sau:
+
+```
+Client
+    │
+    ▼
+  API
+    │
+    ├── lưu request
+    └── publish RabbitMQ
+             │
+             ▼
+        Worker xử lý
+```
+
+Hợp với các việc như gửi email, tạo report, xử lý ảnh, đồng bộ dữ liệu — những thứ không cần bắt người dùng đợi.
+
 ---
 
 ## 2. "Traffic tăng đột ngột 10 lần, xử lý thế nào?"
