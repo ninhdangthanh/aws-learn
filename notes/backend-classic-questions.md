@@ -154,7 +154,20 @@ Sửa xong phải chứng minh là đã sửa, và ngăn nó tái diễn:
 
 ### Câu trả lời khi đã xác định bottleneck là database
 
-> Nếu API chậm và tôi xác định bottleneck nằm ở database thì tôi sẽ xử lý theo từng bước.
+Trước khi nói "bottleneck nằm ở database", nên nói một câu cho thấy mình biết request còn đi qua các tầng khác — nhưng chỉ điểm qua, không cần phân tích sâu từng tầng:
+
+```
+Client → DNS/TLS → CDN → Load Balancer → API Gateway → App → Database
+                                                        └→ External API
+```
+
+> Về lý thuyết thì chậm ở tầng nào cũng có thể — mạng, CDN, load balancer, gateway. Nhưng thực tế em gặp chủ yếu ở tầng application, và trong đó phần lớn là database.
+
+Cách loại trừ nhanh: so **thời gian client đo** với **thời gian server tự log**. Client thấy 3s mà server log 80ms thì vấn đề nằm ngoài app (network, payload, TLS). Nếu hai con số gần nhau thì chậm nằm trong app, và lúc đó chỉ cần so tiếp **tổng thời gian query DB** với tổng thời gian handler là biết có phải database không.
+
+Một lưu ý: "thời gian mất ở tầng DB" chưa chắc là "database chậm". Chờ connection pool, N+1 do ORM, hay transaction mở quá lâu đều hiện ra như DB chậm nhưng gốc nằm ở phía app. Dấu hiệu phân biệt: **DB CPU thấp mà latency vẫn cao thì là chờ, không phải query nặng.**
+
+> Nếu API chậm và tôi xác định bottleneck nằm ở database — nghĩa là tôi đã so thời gian client đo với thời gian server log, và thấy phần lớn thời gian của request nằm trong các câu query chứ không phải ở network, middleware hay external call — thì tôi sẽ xử lý theo từng bước.
 >
 > Đầu tiên tôi kiểm tra chính câu query trước, vì nhiều khi vấn đề không nằm ở database mà nằm ở cách mình viết query. Tôi xem có đang query dư dữ liệu không, có join không cần thiết không, hoặc có gặp vấn đề N+1 Query hay không. Nếu là N+1 Query thì tôi tối ưu bằng cách query theo batch, ví dụ dùng `IN` hoặc `JOIN`, thay vì query từng record trong một vòng lặp.
 >
