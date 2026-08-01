@@ -1,299 +1,332 @@
-# Product API Caching Design
+# Product Catalog Read Model Design
 
 ## Overview
 
-Để giảm tải cho Database và cải thiện thời gian phản hồi của Customer API, Product API sử dụng **Redis Cache** theo mô hình **Cache Aside** kết hợp với **Cache Invalidation** và **TTL**.
+Redis **không** còn được dùng như cache-aside. Nó là **read model** của product catalog:
 
-Do Product được cấu hình ở **Client** và tất cả Store thuộc Client đều sử dụng chung Product, cache được tổ chức theo **Client** thay vì Store.
+> Redis is used as a read-model replica of the product catalog. The cache is proactively
+> synchronized after every successful write, warmed up during application startup, and
+> periodically reconciled with PostgreSQL.
+
+Lý do đổi: requirement mới là *"lúc nào cache cũng phải có đầy đủ data của source of truth"*.
+Cache-aside có bản chất ngược lại — cache có thể không tồn tại, chỉ chứa dữ liệu được truy cập,
+và cache miss là chuyện bình thường.
+
+| | Cache Aside (bản cũ) | Read Model (bản này) |
+| --- | --- | --- |
+| Redis chứa gì | phần dữ liệu vừa được đọc | toàn bộ catalog đang bán của mọi client |
+| Sau khi write | `DEL` key, chờ read sau dựng lại | `SET` lại ngay bằng bản build từ DB |
+| Cache miss | bình thường, xảy ra thường xuyên | bất thường, rebuild ngay và ghi lại Redis |
+| Đồng bộ bằng gì | TTL + invalidation | rebuild sau write + warm-up + resync định kỳ |
+| TTL | cơ chế fallback | chỉ để dọn key rác |
+
+Product được cấu hình ở **Client** và mọi Store thuộc Client dùng chung, nên read model
+tổ chức theo Client thay vì Store.
 
 ---
 
 # Cache Key
 
 ```
-client:{clientId}:products
+client:{clientId}:catalog
 ```
 
 Ví dụ:
 
 ```
-client:1001:products
+client:1001:catalog
 ```
 
-Cache chứa toàn bộ danh sách Product của Client.
+Một key duy nhất chứa toàn bộ catalog của client — đúng shape frontend cần: load một lần rồi
+filter theo category ở phía client, click sang category khác không phải gọi API.
+
+## Payload
+
+```json
+{
+  "client_id": "1001",
+  "client_name": "Trà Sữa Nhà Làm",
+  "rebuilt_at": "2026-08-02T10:00:00Z",
+  "categories": [
+    {
+      "id": 1,
+      "name": "Đồ Uống",
+      "products": [
+        {
+          "id": 1,
+          "name": "Trà Đào Cam Sả",
+          "sizes": [
+            { "id": 1, "name": "S", "price": 30000 },
+            { "id": 2, "name": "M", "price": 40000 },
+            { "id": 3, "name": "L", "price": 50000 }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Giá nằm ở **size**, không nằm ở product. Món bán một giá vẫn có đúng một size tên `"Mặc định"`.
+
+## Chỉ chứa data active
+
+Read model chỉ chứa **category active + product active**. Frontend không phải filter gì thêm.
+
+Nghĩa là câu *"cache luôn có đầy đủ data của source of truth"* phải hiểu chính xác là
+**"cache luôn có đầy đủ phần catalog đang bán của source of truth"**. Món inactive không xuất
+hiện trong catalog, nhưng `POST /orders` vẫn đọc Postgres nên vẫn reject đúng — đây chính là
+chỗ query path và command path tách nhau.
 
 ---
 
-# Cache Strategy
+# TTL
 
-* Pattern: **Cache Aside**
-* Invalidation: **Delete cache sau khi dữ liệu được cập nhật**
-* TTL: **1 hour** (có thể điều chỉnh tùy traffic)
+```
+24 hours
+```
 
-TTL chỉ đóng vai trò:
-
-* Giải phóng bộ nhớ Redis đối với các key không còn được sử dụng.
-* Là cơ chế fallback nếu cache invalidation thất bại.
-
-Không sử dụng TTL để đồng bộ dữ liệu.
+TTL **không** phải cơ chế đồng bộ. Nó chỉ để dọn key của client đã bị xoá. Cơ chế đồng bộ thật sự
+là resync mỗi 5 phút.
 
 ---
 
-# Read Product
-
-## Flow
+# Read
 
 ```text
 Client
     │
-GET /products
+GET /clients/{clientId}/catalog
     │
-Backend
+GET client:{clientId}:catalog
     │
-GET client:{clientId}:products
+ ┌── Hit ────────────────────┐
+ │   Return  source: redis   │
+ └───────────────────────────┘
     │
- ┌── Hit ───────────────┐
- │                      │
- │      Return Cache    │
- │                      │
- └──────────────────────┘
+  Miss
     │
-Miss
+Load catalog từ Postgres
     │
-Database
+SET client:{clientId}:catalog (TTL 24h)
     │
-SET Redis (TTL = 1 hour)
-    │
-Return Response
+Return  source: rebuilt
 ```
 
 ## Pseudocode
 
 ```go
-products := redis.Get(cacheKey)
+catalog, hit, err := cache.Get(clientID)
 
-if products != nil {
-    return products
+if err != nil {
+    return 503 cache_unavailable   // Redis down
+}
+if hit {
+    return catalog                 // source: redis
 }
 
-products = db.GetProducts(clientId)
+catalog, err = service.Rebuild(clientID)   // load DB + SET Redis
+if errors.Is(err, ErrClientNotFound) {
+    return 404 client_not_found
+}
 
-redis.Set(cacheKey, products, time.Hour)
-
-return products
+return catalog                     // source: rebuilt
 ```
+
+Miss **không** fallback kiểu "đọc DB rồi trả thẳng" — như vậy là quay lại cache-aside.
+Miss thì rebuild, tức là vẫn ghi lại Redis, cache tự lành ngay chứ không chờ chu kỳ resync.
+
+Ba trạng thái được phân biệt rõ ở tầng `CatalogCache.Get`:
+
+| Trạng thái | Ý nghĩa | Xử lý |
+| --- | --- | --- |
+| `hit = true` | key có sẵn | trả luôn |
+| `hit = false`, `err = nil` | miss / payload hỏng | rebuild từ Postgres |
+| `err != nil` | Redis down | 503 |
 
 ---
 
-# Create Product
+# Write
 
-## Flow
+Mọi write đều theo cùng một flow, chỉ khác thao tác DB ở bước đầu.
 
 ```text
-Create Product
+Update Postgres
       │
-      ▼
-Database
+   Commit
       │
-      ▼
-Delete Redis Cache
+Rebuild catalog của đúng client đó
       │
-      ▼
+SET client:{clientId}:catalog
+      │
 Return Success
 ```
 
 ## Pseudocode
 
 ```go
-db.CreateProduct(product)
+product, err := repo.UpdateProduct(clientID, productID, input)
+if err != nil {
+    return err
+}
 
-redis.Del(cacheKey)
+catalog.RebuildAfterWrite(clientID)   // rebuild fail chỉ log
 
-return success
+return product
 ```
 
-Không ghi trực tiếp dữ liệu mới vào Redis.
+Chỉ rebuild client bị ảnh hưởng, không rebuild toàn hệ thống.
 
-Request đọc tiếp theo sẽ tự xây dựng lại cache.
+## Tại sao rebuild nguyên catalog thay vì patch JSON?
+
+Catalog một client F&B rất nhỏ — cỡ 30 category / 300 product / 900 size thì `SELECT` toàn bộ,
+marshal JSON và `SET` Redis chỉ mất vài chục ms. Đổi lại:
+
+* code cực kỳ đơn giản
+* không cần patch từng node trong JSON lồng nhau
+* không sợ bug lệch dữ liệu
+
+Với product có nhiều size và giá theo size, patch từng phần trong một JSON lớn phức tạp và dễ lỗi
+hơn rebuild rất nhiều. Đây là trade-off đáng giá.
+
+## Rebuild fail thì sao?
+
+Chỉ `log`, API vẫn trả 2xx, **không** rollback DB. Dữ liệu đã nằm trong source of truth rồi;
+resync sẽ chữa cache trong tối đa 5 phút.
 
 ---
 
-# Update Product
-
-## Flow
+# Warm-up
 
 ```text
-Update Product
-      │
-      ▼
-Database
-      │
-      ▼
-Delete Redis Cache
-      │
-      ▼
-Return Success
+App start
+    │
+SELECT id FROM clients
+    │
+Load catalog từng client
+    │
+SET Redis
 ```
 
-## Pseudocode
-
-```go
-db.UpdateProduct(product)
-
-redis.Del(cacheKey)
-
-return success
-```
-
-Không update cache trực tiếp để tránh đồng bộ nhiều logic giữa Database và Redis.
+Một client fail thì log và đi tiếp, không chặn app start.
 
 ---
 
-# Delete Product
-
-## Flow
+# Resync
 
 ```text
-Delete Product
-      │
-      ▼
-Database
-      │
-      ▼
-Delete Redis Cache
-      │
-      ▼
-Return Success
+Mỗi 5 phút
+    │
+Load DB
+    │
+Overwrite toàn bộ key catalog
 ```
 
-## Pseudocode
+Đây mới là cơ chế đồng bộ chính. Nó làm những trường hợp sau **tự hồi phục**:
 
-```go
-db.DeleteProduct(productId)
-
-redis.Del(cacheKey)
-
-return success
-```
+* Redis restart / mất data
+* ai đó sửa thẳng dưới database, không qua API
+* rebuild sau write bị fail
+* key bị eviction
 
 ---
 
-# Cache Lifecycle
+# Order — command path không dùng cache
 
 ```text
-            GET Products
-                 │
-                 ▼
-          Redis Hit ?
-          /        \
-       Yes          No
-       │            │
-       ▼            ▼
-Return Cache      Read DB
-                     │
-                     ▼
-          Cache Redis (TTL 1h)
-                     │
-                     ▼
-             Return Response
+POST /orders
+      │
+      ▼
+Postgres (JOIN product_sizes + products)
+      │
+      ▼
+Validate: size tồn tại, product cha thuộc đúng client, product cha active
+      │
+      ▼
+unit_price = product_sizes.price tại thời điểm checkout
+```
 
+Cart chỉ gửi lên `size_id` + `quantity`, **không** gửi price:
 
-Create / Update / Delete
+```json
+{ "items": [ { "size_id": 2, "quantity": 2 } ] }
+```
+
+Không tin giá từ client, cũng không tin giá từ Redis. Với dữ liệu transaction như order/payment,
+luôn lấy source of truth từ DB. Redis chỉ phục vụ read-heavy flow như browsing menu.
+
+---
+
+# Kiến trúc tổng thể
+
+```text
+                 WRITE                                  READ
+
+        Client                                   Client
+           │                                        │
+           ▼                                        ▼
+      PostgreSQL                                  Redis
+           │                                        │
+        Commit                                   Response
            │
            ▼
-      Update Database
+ Rebuild client catalog
            │
            ▼
- Delete client:{clientId}:products
-           │
-           ▼
-Next Read Rebuild Cache
+         Redis
+
+
+                              ORDER
+
+        Client  ──►  PostgreSQL  ──►  giá tại thời điểm checkout
 ```
-
----
-
-# Why Cache by Client?
-
-Current business model:
-
-```text
-Client
-    ├── Product A
-    ├── Product B
-    ├── Product C
-    └── ...
-
-Store 1
-Store 2
-Store 3
-```
-
-All stores of a client share the same product catalog.
-
-Caching by Store would duplicate identical data:
-
-```
-store:1:products
-store:2:products
-store:3:products
-```
-
-Instead, cache once:
-
-```
-client:{clientId}:products
-```
-
-Benefits:
-
-* Reduce Redis memory usage.
-* Simpler cache invalidation.
-* Only one cache rebuild per client.
 
 ---
 
 # Advantages
 
-* Fast response time for high-read APIs.
-* Reduced database load.
-* Simple implementation (Cache Aside).
-* Easy cache invalidation.
-* TTL automatically cleans up inactive cache entries.
-* Avoid duplicated cache across stores.
-
+* Read gần như không bao giờ xuống DB — Redis luôn có sẵn toàn bộ catalog.
+* Không có "cold start penalty": warm-up đã dựng cache trước khi nhận request đầu tiên.
+* Rebuild toàn bộ nên không có logic patch phức tạp, không sợ lệch dữ liệu.
+* Resync làm mọi sai lệch tự hồi phục, kể cả khi có người sửa thẳng dưới DB.
+* Payload đúng shape frontend cần, không phải gọi nhiều API rồi ghép ở client.
 
 # Disadvantages
 
-* Big Issue: Có thể xảy ra stale data (ví dụ load lên rồi, người khác sửa, nhưng khách hàng add vào order rồi nhưng chưa place order)
-* Cache Invalidation phức tạp
-* Cache miss gây tăng tải Database
-* Redis trở thành dependency quan trọng
-* Tốn thêm memory
-* Cache consistency khó khi có nhiều service
+* Mỗi write tốn thêm một lần `SELECT` toàn bộ catalog + `SET` Redis.
+* Redis là dependency cứng của read path — Redis down thì `GET /catalog` trả 503.
+* Tốn memory hơn cache-aside vì cache cả những phần chưa ai đọc.
+* Rebuild race: hai write song song trên cùng client có thể ghi đè nhau (xem dưới).
+* Resync định kỳ tạo tải nền đều đặn lên DB, tỉ lệ thuận với số client.
+
+## Rebuild race
+
+Hai write song song trên cùng một client có thể rebuild lệch nhau — goroutine chậm hơn ghi đè
+bản mới hơn lên Redis. Demo này chấp nhận, resync 5 phút sẽ chữa.
+
+Muốn chặt hơn:
+
+* per-client mutex quanh đoạn rebuild, hoặc
+* gắn version / `updated_at` vào payload rồi so sánh trước khi `SET`.
 
 ---
 
 # Future Improvements
 
-Nếu trong tương lai mỗi Store có:
+Thiết kế này hợp với catalog cỡ vài trăm đến vài nghìn product mỗi client. Nếu sau này:
 
-* giá khác nhau,
-* sản phẩm khác nhau,
-* tồn kho khác nhau,
-* chương trình khuyến mãi khác nhau,
+* catalog lên hàng chục nghìn product, hoặc
+* write rất thường xuyên,
 
-thì cache key có thể được chuyển sang:
+thì cân nhắc:
 
-```
-store:{storeId}:products
-```
-
-hoặc kết hợp nhiều lớp cache như:
+* cập nhật incremental thay vì rebuild toàn bộ,
+* chia nhỏ read model thành nhiều key (`client:{id}:category:{catId}`),
+* đẩy việc rebuild sang worker qua message queue thay vì làm inline trong request,
+* tách theo store nếu mỗi store có giá / tồn kho / khuyến mãi riêng:
 
 ```
-client:{clientId}:products
+client:{clientId}:catalog
 store:{storeId}:inventory
 store:{storeId}:promotion
 ```
-
-để phản ánh dữ liệu riêng của từng Store mà vẫn tối ưu hiệu năng.

@@ -10,67 +10,65 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ProductCache là lớp duy nhất chạm tới Redis (cache-aside cho list products).
-type ProductCache struct {
+// CatalogCache là lớp duy nhất chạm tới Redis. Redis ở đây không phải cache lazy
+// mà là read model: mỗi client có đúng một key chứa toàn bộ catalog đang bán.
+type CatalogCache struct {
 	rdb *redis.Client
 	ttl time.Duration
 }
 
-func NewProductCache(addr string, ttl time.Duration) (*ProductCache, error) {
+func NewCatalogCache(addr string, ttl time.Duration) (*CatalogCache, error) {
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		rdb.Close()
 		return nil, err
 	}
-	return &ProductCache{rdb: rdb, ttl: ttl}, nil
+	return &CatalogCache{rdb: rdb, ttl: ttl}, nil
 }
 
-func (c *ProductCache) Close() error {
-	return c.rdb.Close()
+func (c *CatalogCache) Close() error { return c.rdb.Close() }
+
+func (c *CatalogCache) TTL() time.Duration { return c.ttl }
+
+func (c *CatalogCache) Key(clientID string) string {
+	return "client:" + clientID + ":catalog"
 }
 
-func (c *ProductCache) TTL() time.Duration {
-	return c.ttl
-}
-
-func (c *ProductCache) Key(clientID string) string {
-	return "client:" + clientID + ":products"
-}
-
-// Get trả về (products, true) khi cache hit. Cache hỏng thì tự xoá và coi như miss.
-func (c *ProductCache) Get(ctx context.Context, clientID string) ([]Product, bool) {
+// Get phân biệt rõ ba trạng thái, vì read path đối xử với chúng khác nhau:
+//
+//	hit = true             -> trả thẳng
+//	hit = false, err = nil -> miss, caller rebuild từ Postgres
+//	err != nil             -> Redis down, caller trả 503
+//
+// Payload hỏng được coi như miss: xoá key rồi để rebuild dựng lại.
+func (c *CatalogCache) Get(ctx context.Context, clientID string) (Catalog, bool, error) {
 	key := c.Key(clientID)
 
 	cached, err := c.rdb.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return Catalog{}, false, nil
+	}
 	if err != nil {
-		if !errors.Is(err, redis.Nil) {
-			log.Println("redis get:", err)
-		}
-		return nil, false
+		return Catalog{}, false, err
 	}
 
-	var products []Product
-	if err := json.Unmarshal(cached, &products); err != nil {
+	var catalog Catalog
+	if err := json.Unmarshal(cached, &catalog); err != nil {
 		log.Println("redis payload corrupted, dropping key:", key)
 		c.Del(ctx, clientID)
-		return nil, false
+		return Catalog{}, false, nil
 	}
-	return products, true
+	return catalog, true, nil
 }
 
-func (c *ProductCache) Set(ctx context.Context, clientID string, products []Product) {
-	body, err := json.Marshal(products)
+func (c *CatalogCache) Set(ctx context.Context, clientID string, catalog Catalog) error {
+	body, err := json.Marshal(catalog)
 	if err != nil {
-		log.Println("cache encode:", err)
-		return
+		return err
 	}
-	if err := c.rdb.Set(ctx, c.Key(clientID), body, c.ttl).Err(); err != nil {
-		log.Println("redis set:", err)
-	}
+	return c.rdb.Set(ctx, c.Key(clientID), body, c.ttl).Err()
 }
 
-func (c *ProductCache) Del(ctx context.Context, clientID string) {
-	if err := c.rdb.Del(ctx, c.Key(clientID)).Err(); err != nil {
-		log.Println("redis del:", err)
-	}
+func (c *CatalogCache) Del(ctx context.Context, clientID string) error {
+	return c.rdb.Del(ctx, c.Key(clientID)).Err()
 }
