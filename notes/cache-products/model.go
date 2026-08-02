@@ -11,9 +11,6 @@ var (
 	ErrCategoryNotFound = errors.New("category not found")
 	ErrProductNotFound  = errors.New("product not found")
 	ErrSizeNotFound     = errors.New("size not found")
-	// ErrCacheUnavailable báo hiệu Redis không dùng được (down / lỗi network),
-	// khác hẳn với cache miss — miss chỉ là chưa có key.
-	ErrCacheUnavailable = errors.New("cache unavailable")
 )
 
 // ---------------------------------------------------------------------------
@@ -77,11 +74,12 @@ func (ProductSize) TableName() string { return "product_sizes" }
 // Catalog là toàn bộ menu đang bán của một client, đúng shape frontend cần:
 // load một lần rồi filter theo category ở phía client.
 //
-// Chỉ chứa category active và product active — xem docs/implement-plan.md mục 3.
+// Chỉ chứa category active và product active — xem docs/implement-plan-1.md.
 type Catalog struct {
-	ClientID   string            `json:"client_id"`
-	ClientName string            `json:"client_name"`
-	RebuiltAt  time.Time         `json:"rebuilt_at"`
+	ClientID   string `json:"client_id"`
+	ClientName string `json:"client_name"`
+	// CachedAt là lúc entry được build từ Postgres, cho thấy cache đã cũ bao lâu.
+	CachedAt   time.Time         `json:"cached_at"`
 	Categories []CatalogCategory `json:"categories"`
 }
 

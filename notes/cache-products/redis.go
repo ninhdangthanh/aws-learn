@@ -10,8 +10,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// CatalogCache là lớp duy nhất chạm tới Redis. Redis ở đây không phải cache lazy
-// mà là read model: mỗi client có đúng một key chứa toàn bộ catalog đang bán.
+// CatalogCache là lớp duy nhất chạm tới Redis (cache-aside cho catalog của client).
+//
+// Cache ở đây là optional: mọi lỗi Redis chỉ được log chứ không đẩy ngược lên
+// handler. Cache hỏng phải làm chậm, không được làm sai — đường lui luôn là Postgres.
 type CatalogCache struct {
 	rdb *redis.Client
 	ttl time.Duration
@@ -34,41 +36,41 @@ func (c *CatalogCache) Key(clientID string) string {
 	return "client:" + clientID + ":catalog"
 }
 
-// Get phân biệt rõ ba trạng thái, vì read path đối xử với chúng khác nhau:
-//
-//	hit = true             -> trả thẳng
-//	hit = false, err = nil -> miss, caller rebuild từ Postgres
-//	err != nil             -> Redis down, caller trả 503
-//
-// Payload hỏng được coi như miss: xoá key rồi để rebuild dựng lại.
-func (c *CatalogCache) Get(ctx context.Context, clientID string) (Catalog, bool, error) {
+// Get trả (catalog, true) khi cache hit. Redis down hoặc payload hỏng đều coi như
+// miss — caller cứ đọc Postgres như bình thường.
+func (c *CatalogCache) Get(ctx context.Context, clientID string) (Catalog, bool) {
 	key := c.Key(clientID)
 
 	cached, err := c.rdb.Get(ctx, key).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return Catalog{}, false, nil
-	}
 	if err != nil {
-		return Catalog{}, false, err
+		if !errors.Is(err, redis.Nil) {
+			log.Println("redis get:", err)
+		}
+		return Catalog{}, false
 	}
 
 	var catalog Catalog
 	if err := json.Unmarshal(cached, &catalog); err != nil {
 		log.Println("redis payload corrupted, dropping key:", key)
 		c.Del(ctx, clientID)
-		return Catalog{}, false, nil
+		return Catalog{}, false
 	}
-	return catalog, true, nil
+	return catalog, true
 }
 
-func (c *CatalogCache) Set(ctx context.Context, clientID string, catalog Catalog) error {
+func (c *CatalogCache) Set(ctx context.Context, clientID string, catalog Catalog) {
 	body, err := json.Marshal(catalog)
 	if err != nil {
-		return err
+		log.Println("cache encode:", err)
+		return
 	}
-	return c.rdb.Set(ctx, c.Key(clientID), body, c.ttl).Err()
+	if err := c.rdb.Set(ctx, c.Key(clientID), body, c.ttl).Err(); err != nil {
+		log.Println("redis set:", err)
+	}
 }
 
-func (c *CatalogCache) Del(ctx context.Context, clientID string) error {
-	return c.rdb.Del(ctx, c.Key(clientID)).Err()
+func (c *CatalogCache) Del(ctx context.Context, clientID string) {
+	if err := c.rdb.Del(ctx, c.Key(clientID)).Err(); err != nil {
+		log.Println("redis del:", err)
+	}
 }

@@ -106,7 +106,7 @@ func (r *CatalogRepo) LoadCatalog(ctx context.Context, clientID string) (Catalog
 	catalog := Catalog{
 		ClientID:   client.ID,
 		ClientName: client.Name,
-		RebuiltAt:  time.Now().UTC(),
+		CachedAt:   time.Now().UTC(),
 		Categories: make([]CatalogCategory, 0, len(categories)),
 	}
 	for _, category := range categories {

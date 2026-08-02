@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,22 +14,20 @@ import (
 
 // Config hard-code cho demo, khớp với idempotency/docker-compose.yml.
 const (
-	postgresDSN    = "postgres://postgres:postgres@127.0.0.1:5432/idempotency_lab?sslmode=disable"
-	redisAddr      = "127.0.0.1:6379"
-	httpAddr       = ":8020"
-	catalogTTL     = 24 * time.Hour // safety net, không phải cơ chế đồng bộ
-	resyncInterval = 5 * time.Minute
+	postgresDSN = "postgres://postgres:postgres@127.0.0.1:5432/idempotency_lab?sslmode=disable"
+	redisAddr   = "127.0.0.1:6379"
+	httpAddr    = ":8020"
+	// cacheTTL chỉ là cơ chế dọn dẹp. Cache chủ yếu được invalidate sau mỗi write.
+	cacheTTL = time.Hour
 )
 
 type App struct {
-	repo    *CatalogRepo
-	cache   *CatalogCache
-	catalog *CatalogService
+	repo  *CatalogRepo
+	cache *CatalogCache
 }
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx := context.Background()
 
 	repo, err := NewCatalogRepo(postgresDSN)
 	if err != nil {
@@ -44,19 +39,15 @@ func main() {
 		log.Fatal("migrate postgres: ", err)
 	}
 
-	cache, err := NewCatalogCache(redisAddr, catalogTTL)
+	cache, err := NewCatalogCache(redisAddr, cacheTTL)
 	if err != nil {
 		log.Fatal("connect redis: ", err)
 	}
 	defer cache.Close()
 
-	service := NewCatalogService(repo, cache)
-	if err := service.WarmUp(ctx); err != nil {
-		log.Println("warm-up:", err)
-	}
-	service.StartResync(ctx, resyncInterval)
-
-	app := &App{repo: repo, cache: cache, catalog: service}
+	// Không warm-up: Redis rỗng lúc start là chuyện bình thường của cache-aside,
+	// request đọc đầu tiên sẽ tự dựng cache.
+	app := &App{repo: repo, cache: cache}
 
 	router := gin.Default()
 	router.GET("/health", app.health)
@@ -67,19 +58,9 @@ func main() {
 	router.PUT("/clients/:clientID/sizes/:sizeID", app.updateSize)
 	router.POST("/clients/:clientID/orders", app.createOrder)
 
-	server := &http.Server{Addr: httpAddr, Handler: router}
-	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
-		}
-	}()
 	log.Printf("cache-products api listening on %s", httpAddr)
-
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Println("shutdown:", err)
+	if err := router.Run(httpAddr); err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -87,47 +68,37 @@ func (a *App) health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// getCatalog đọc read model từ Redis. Miss thì rebuild ngay từ Postgres rồi SET
-// lại — cache tự lành, không phải chờ tới chu kỳ resync. Redis down mới là 503.
+// getCatalog dùng cache-aside: đọc Redis trước, miss thì build catalog từ Postgres
+// rồi ghi lại cache. Một key duy nhất chứa cả categories, products và sizes.
 func (a *App) getCatalog(c *gin.Context) {
 	ctx := c.Request.Context()
 	clientID := c.Param("clientID")
 	cacheKey := a.cache.Key(clientID)
 
-	catalog, hit, err := a.cache.Get(ctx, clientID)
-	if err != nil {
-		log.Println("redis get:", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cache_unavailable"})
-		return
-	}
-	if hit {
+	if catalog, hit := a.cache.Get(ctx, clientID); hit {
 		c.JSON(http.StatusOK, gin.H{
-			"source":    "redis",
+			"source":    "cache",
 			"cache_key": cacheKey,
-			"ttl":       a.cache.TTL().String(),
 			"catalog":   catalog,
 		})
 		return
 	}
 
-	catalog, err = a.catalog.Rebuild(ctx, clientID)
+	catalog, err := a.repo.LoadCatalog(ctx, clientID)
 	if errors.Is(err, ErrClientNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "client_not_found"})
 		return
 	}
-	if errors.Is(err, ErrCacheUnavailable) {
-		log.Println("rebuild catalog:", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cache_unavailable"})
-		return
-	}
 	if err != nil {
-		log.Println("rebuild catalog:", err)
+		log.Println("load catalog:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "load_catalog_failed"})
 		return
 	}
 
+	a.cache.Set(ctx, clientID, catalog)
+
 	c.JSON(http.StatusOK, gin.H{
-		"source":    "rebuilt",
+		"source":    "db",
 		"cache_key": cacheKey,
 		"ttl":       a.cache.TTL().String(),
 		"catalog":   catalog,
@@ -149,7 +120,7 @@ func (a *App) createProduct(c *gin.Context) {
 		return
 	}
 
-	a.catalog.RebuildAfterWrite(c.Request.Context(), clientID)
+	a.cache.Del(c.Request.Context(), clientID)
 	c.JSON(http.StatusCreated, product)
 }
 
@@ -176,7 +147,7 @@ func (a *App) updateProduct(c *gin.Context) {
 		return
 	}
 
-	a.catalog.RebuildAfterWrite(c.Request.Context(), clientID)
+	a.cache.Del(c.Request.Context(), clientID)
 	c.JSON(http.StatusOK, product)
 }
 
@@ -198,7 +169,7 @@ func (a *App) deleteProduct(c *gin.Context) {
 		return
 	}
 
-	a.catalog.RebuildAfterWrite(c.Request.Context(), clientID)
+	a.cache.Del(c.Request.Context(), clientID)
 	c.Status(http.StatusNoContent)
 }
 
@@ -227,7 +198,7 @@ func (a *App) updateSize(c *gin.Context) {
 		return
 	}
 
-	a.catalog.RebuildAfterWrite(c.Request.Context(), clientID)
+	a.cache.Del(c.Request.Context(), clientID)
 	c.JSON(http.StatusOK, size)
 }
 
