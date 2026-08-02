@@ -367,3 +367,27 @@ Tóm lại:
 
 * **Query path** → có cache.
 * **Command/transaction path** → dùng database chính xác.
+
+---
+
+# Đã implement (xem `order.go`)
+
+Chọn **Option 1** — giá tại thời điểm checkout, và **có báo cho khách** thay vì lặng lẽ tính giá mới.
+
+Cart gửi kèm `expected_price` là giá client đang hiển thị. Server không bao giờ tính tiền theo nó,
+chỉ dùng để so với `product_sizes.price` trong Postgres:
+
+* khớp → tạo order theo giá DB
+* lệch → `409 price_changed` kèm `changed_items` (expected vs current) và `new_total`, **không** tạo
+  order; khách xác nhận rồi client gửi lại với giá mới
+
+Trường này optional — bỏ trống thì không kiểm tra, dành cho POS của nhân viên.
+
+**Ngoài ra khi phát hiện lệch, server còn tự chữa cache** (`reconcileStaleCache`): đọc catalog trong
+Redis lên so với DB, chỉ `DEL` key khi cache thật sự sai. Giá lệch không đồng nghĩa cache sai — khách
+mở menu từ lâu thì cache vẫn đang đúng, xoá lúc đó là vô ích và tạo đường cho client cũ làm cache bị
+xoá liên tục. Response trả `catalog_refreshed` để client biết có cần tải lại menu không.
+
+Không chọn Option 2 (lock price khi add cart) vì F&B không cần và nó tạo thêm state phải quản lý vòng đời.
+
+Chi tiết flow: `docs.md`, mục *"Giá đổi giữa lúc xem menu và lúc đặt"*.

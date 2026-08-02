@@ -101,6 +101,22 @@ type CatalogSize struct {
 	Price int64  `json:"price"`
 }
 
+// SizePrice tra giá của một size trong catalog đang nằm ở cache.
+// found = false nghĩa là size không có mặt trong catalog — hoặc product đã bị tắt,
+// hoặc product mới thêm mà cache chưa có.
+func (c Catalog) SizePrice(sizeID int64) (int64, bool) {
+	for _, category := range c.Categories {
+		for _, product := range category.Products {
+			for _, size := range product.Sizes {
+				if size.ID == sizeID {
+					return size.Price, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
 // ---------------------------------------------------------------------------
 // Request DTO
 // ---------------------------------------------------------------------------
@@ -174,6 +190,18 @@ func (in ProductInput) sizeRows(productID int64) []ProductSize {
 type OrderItemInput struct {
 	SizeID   int64 `json:"size_id"`
 	Quantity int   `json:"quantity"`
+	// ExpectedPrice là giá client đang hiển thị cho khách. Server không bao giờ
+	// tính tiền theo nó — chỉ dùng để phát hiện giá đã đổi kể từ lúc khách xem menu.
+	// Bỏ trống = client chấp nhận mọi giá hiện hành (không check).
+	ExpectedPrice int64 `json:"expected_price,omitempty"`
+}
+
+// PriceChange là một dòng bị lệch giá, trả về cho client ở response 409.
+type PriceChange struct {
+	SizeID        int64  `json:"size_id"`
+	Name          string `json:"name"`
+	ExpectedPrice int64  `json:"expected_price"`
+	CurrentPrice  int64  `json:"current_price"`
 }
 
 type CreateOrderRequest struct {

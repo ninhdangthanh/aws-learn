@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -200,59 +199,6 @@ func (a *App) updateSize(c *gin.Context) {
 
 	a.cache.Del(c.Request.Context(), clientID)
 	c.JSON(http.StatusOK, size)
-}
-
-// createOrder cố tình không đọc Redis: giá tiền luôn lấy trực tiếp từ Postgres.
-// Đây là ranh giới giữa query path (có cache) và command path (không cache).
-func (a *App) createOrder(c *gin.Context) {
-	clientID := c.Param("clientID")
-
-	var req CreateOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_json"})
-		return
-	}
-	if len(req.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "items are required"})
-		return
-	}
-
-	lines := make([]OrderLine, 0, len(req.Items))
-	var total int64
-	for _, item := range req.Items {
-		if item.SizeID <= 0 || item.Quantity <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "size_id and quantity must be positive"})
-			return
-		}
-
-		size, err := a.repo.GetSizeForOrder(c.Request.Context(), clientID, item.SizeID)
-		if errors.Is(err, ErrSizeNotFound) || (err == nil && !size.ProductActive) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("size %d is not available", item.SizeID)})
-			return
-		}
-		if err != nil {
-			log.Println("get size:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "get_size_failed"})
-			return
-		}
-
-		lineAmount := size.Price * int64(item.Quantity)
-		total += lineAmount
-		lines = append(lines, OrderLine{
-			SizeID:     size.SizeID,
-			ProductID:  size.ProductID,
-			Name:       fmt.Sprintf("%s (%s)", size.ProductName, size.SizeName),
-			Quantity:   item.Quantity,
-			UnitPrice:  size.Price,
-			LineAmount: lineAmount,
-		})
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"price_source": "db",
-		"lines":        lines,
-		"total":        total,
-	})
 }
 
 func parseIDParam(c *gin.Context, name string) (int64, bool) {

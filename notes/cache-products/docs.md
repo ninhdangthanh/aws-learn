@@ -180,27 +180,107 @@ Lý do không ghi thẳng dữ liệu mới vào Redis: phải duy trì hai đư
 
 # Order — command path không dùng cache
 
+`POST /orders` chạy ba pha:
+
 ```text
-POST /orders
-      │
-      ▼
-Postgres (JOIN product_sizes + products)
-      │
-      ▼
-Validate: size tồn tại, product cha thuộc đúng client, product cha active
-      │
-      ▼
-unit_price = product_sizes.price tại thời điểm checkout
+Pha 1  Đọc size từ Postgres (JOIN product_sizes + products)
+       Validate: size tồn tại, product cha thuộc đúng client, product cha active
+          │
+          ▼
+Pha 2  So expected_price client gửi lên với giá DB
+       Lệch -> 409 price_changed, KHÔNG tạo order
+          │
+          ▼
+Pha 3  unit_price = product_sizes.price tại thời điểm checkout
 ```
 
-Cart chỉ gửi lên `size_id` + `quantity`, **không** gửi price:
+## Cart gửi gì
 
 ```json
-{ "items": [ { "size_id": 2, "quantity": 2 } ] }
+{ "items": [ { "size_id": 2, "quantity": 2, "expected_price": 40000 } ] }
 ```
+
+`expected_price` là giá **client đang hiển thị cho khách**. Server không bao giờ tính tiền theo nó —
+chỉ dùng để phát hiện giá đã đổi kể từ lúc khách xem menu. Tiền luôn tính theo `product_sizes.price`
+đọc từ Postgres tại thời điểm checkout.
+
+Trường này **optional**. Bỏ trống nghĩa là client chấp nhận mọi giá hiện hành và bỏ qua bước kiểm tra
+— dành cho POS của nhân viên, nơi người bấm máy đang nhìn thẳng vào bảng giá của quán.
 
 Không tin giá từ client, cũng không tin giá từ Redis. Với dữ liệu transaction như order/payment, luôn
 lấy source of truth từ DB. Redis chỉ phục vụ read-heavy flow như browsing menu.
+
+---
+
+# Giá đổi giữa lúc xem menu và lúc đặt
+
+Đây là vấn đề nêu trong `isssue.md`, và là lý do phải có pha 2.
+
+```text
+10:00  Khách mở menu     -> Trà Đào M = 40.000
+10:05  Admin đổi giá     -> Trà Đào M = 99.000
+10:10  Khách bấm đặt     -> tính tiền theo giá nào?
+```
+
+Hệ thống này theo **Option 1** của `isssue.md`: lấy giá tại thời điểm checkout, **và báo cho
+khách biết** thay vì lặng lẽ tính giá mới.
+
+## Response 409
+
+```json
+{
+  "error": "price_changed",
+  "message": "Giá đã thay đổi, vui lòng tải lại menu và xác nhận lại",
+  "changed_items": [
+    { "size_id": 2, "name": "Trà Đào Cam Sả (M)", "expected_price": 40000, "current_price": 99000 }
+  ],
+  "new_total": 99000,
+  "catalog_refreshed": true
+}
+```
+
+Order **không** được tạo. Mọi dòng lệch được gom vào một response để client sửa một lần, không phải
+thử lại từng món.
+
+Khách xem giá mới rồi xác nhận → client gửi lại với `expected_price` = giá mới → 201.
+
+## catalog_refreshed — chữa cache, nhưng chỉ khi cache thật sự sai
+
+Giá lệch **không** đồng nghĩa cache sai. Có hai tình huống hoàn toàn khác nhau:
+
+| | Cache | DB | Client gửi | Kết luận | Hành động |
+| --- | --- | --- | --- | --- | --- |
+| Cache lệch thật | 40.000 | 99.000 | 40.000 | cache stale | `DEL` key, `catalog_refreshed: true` |
+| Client cầm menu cũ | 40.000 | 40.000 | 30.000 | cache đang đúng | không đụng cache, `false` |
+
+Cả hai đều trả 409 cho khách. Nhưng ở dòng thứ hai, khách chỉ mở tab từ lâu — cache hoàn toàn khoẻ.
+Nếu cứ hễ lệch giá là `DEL` thì vài client cũ đủ sức làm cache bị xoá liên tục, mọi request đọc sau đó
+đều miss vô ích. Vì vậy `reconcileStaleCache` đọc cache lên so với DB trước, lệch thật mới xoá.
+
+Ba dấu hiệu được coi là cache stale:
+
+| Cache | DB | Ý nghĩa |
+| --- | --- | --- |
+| có size, giá X | giá Y ≠ X | giá lệch |
+| có size | product đã tắt | món tắt rồi mà cache vẫn còn |
+| không có size | product đang bán | món mới mà cache chưa có |
+
+Xoá bằng `DEL`, **không** rebuild — đúng tinh thần cache-aside, `GET /catalog` kế tiếp sẽ dựng lại.
+
+Món bị tắt giữa chừng cũng đi qua đúng cơ chế này, trả `400 size N is not available` kèm
+`catalog_refreshed`.
+
+## Vì sao không giải quyết ở tầng cache
+
+Bỏ Redis đi hoàn toàn thì race này **vẫn còn nguyên**: khách mở menu 10:00, admin đổi giá 10:05, khách
+đặt 10:10. Cache chỉ *nới rộng* cửa sổ (tối đa hết TTL thay vì vài phút khách ngồi xem menu), không
+phải nguyên nhân. Nên nó phải được xử lý ở tầng checkout, không phải bằng cách cố làm cache realtime.
+
+## Phương án không chọn
+
+`isssue.md` còn nêu Option 2: khoá giá lúc add to cart (`locked_price` + `expired_at`, kiểu hệ
+thống booking). Không dùng vì F&B không cần — khách gọi món rồi thanh toán trong vài phút, và việc giữ
+giá tạo ra state phải quản lý vòng đời.
 
 ---
 
@@ -236,7 +316,23 @@ Create / Update / Delete / Đổi giá size
    Next Read Rebuild Cache
 
 
-POST /orders  ──►  Postgres trực tiếp, bỏ qua cache
+POST /orders
+      │
+      ▼
+ Postgres trực tiếp, bỏ qua cache
+      │
+      ├── giá khớp ──────────────►  201, tính theo giá DB
+      │
+      └── giá lệch
+             │
+             ▼
+      So cache với DB
+             │
+             ├── cache lệch  ──►  DEL key
+             └── cache đúng  ──►  giữ nguyên
+             │
+             ▼
+      409 price_changed
 ```
 
 ---
@@ -276,7 +372,8 @@ truth"* — đó là một đánh đổi có ý thức, không phải bỏ sót.
   `singleflight` nếu cần — bản demo này không làm.
 * **Race "DEL trước, SET sau"** khiến cache stale cả tiếng (xem dưới).
 * Ai sửa thẳng dưới DB thì cache sai tới khi hết TTL, không có cơ chế tự chữa.
-* Stale window giữa lúc client đọc menu và lúc đặt hàng — được xử lý bằng cách order luôn đọc DB.
+* Stale window giữa lúc client đọc menu và lúc đặt hàng — xử lý bằng cách order luôn đọc DB và trả
+  409 `price_changed` khi giá lệch, không phải bằng cách cố làm cache realtime.
 
 ## Race "DEL trước, SET sau"
 
