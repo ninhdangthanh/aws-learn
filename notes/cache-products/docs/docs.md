@@ -10,26 +10,26 @@ sẵn theo cấu trúc frontend cần.
 
 Lý do chọn Cache Aside:
 
-* Catalog mỗi client nhỏ (~50 product, 5–8 category).
-* Write ít, read nhiều.
-* Cache miss chấp nhận được.
-* Rebuild cache rất rẻ — vài câu SELECT rồi marshal JSON.
+- Catalog mỗi client nhỏ (~50 product, 5–8 category).
+- Write ít, read nhiều.
+- Cache miss chấp nhận được.
+- Rebuild cache rất rẻ — vài câu SELECT rồi marshal JSON.
 
 ---
 
-# Cache Key
+## Cache Key
 
-```
+```text
 client:{clientId}:catalog
 ```
 
 Ví dụ:
 
-```
+```text
 client:1001:catalog
 ```
 
-## Payload
+### Payload
 
 ```json
 {
@@ -60,13 +60,13 @@ Giá nằm ở **size**, không nằm ở product. Món bán một giá vẫn c�
 
 `cached_at` cho biết entry được build lúc nào — nhìn vào đây biết cache đang cũ bao lâu.
 
-## Tại sao một key cho cả catalog?
+### Tại sao một key cho cả catalog?
 
 Vì UI hoạt động đúng kiểu đó. Frontend mở trang là cần **toàn bộ** category + product để render trang
 "All"; click sang category khác thì chỉ filter ở client, không gọi API nữa. Cache theo từng product
 hay từng category sẽ tạo ra hàng chục round-trip cho một lần mở menu.
 
-## Chỉ chứa data active
+### Chỉ chứa data active
 
 Catalog chỉ chứa **category active + product active**, frontend không phải filter gì thêm.
 
@@ -75,16 +75,16 @@ Món inactive không xuất hiện trong catalog, nhưng `POST /orders` vẫn đ
 
 ---
 
-# Cache Strategy
+## Cache Strategy
 
-* Pattern: **Cache Aside**
-* Invalidation: **`DEL` key sau mỗi write**
-* TTL: **1 hour**
+- Pattern: **Cache Aside**
+- Invalidation: **`DEL` key sau mỗi write**
+- TTL: **1 hour**
 
 TTL chỉ đóng vai trò:
 
-* Giải phóng bộ nhớ Redis với key không còn được dùng.
-* Là lưới an toàn nếu invalidation thất bại.
+- Giải phóng bộ nhớ Redis với key không còn được dùng.
+- Là lưới an toàn nếu invalidation thất bại.
 
 Không dùng TTL để đồng bộ dữ liệu.
 
@@ -92,7 +92,7 @@ Không dùng TTL để đồng bộ dữ liệu.
 
 ---
 
-# Read
+## Read
 
 ```text
 Client
@@ -116,7 +116,7 @@ SET client:{clientId}:catalog (TTL 1h)
 Return  source: db
 ```
 
-## Pseudocode
+### Pseudocode
 
 ```go
 if catalog, hit := cache.Get(clientID); hit {
@@ -133,7 +133,7 @@ cache.Set(clientID, catalog)
 return catalog                      // source: db
 ```
 
-## Redis down thì sao?
+### Redis down thì sao?
 
 Coi như cache miss: đọc thẳng Postgres, log lỗi, request vẫn thành công.
 
@@ -144,7 +144,7 @@ Payload trong Redis bị hỏng cũng xử lý y hệt: xoá key, coi như miss.
 
 ---
 
-# Write
+## Write
 
 Mọi thao tác — create, update, delete product, đổi giá size — đều theo cùng một flow:
 
@@ -158,7 +158,7 @@ DEL client:{clientId}:catalog
 Return Success
 ```
 
-## Pseudocode
+### Pseudocode
 
 ```go
 product, err := repo.UpdateProduct(clientID, productID, input)
@@ -178,7 +178,7 @@ Lý do không ghi thẳng dữ liệu mới vào Redis: phải duy trì hai đư
 
 ---
 
-# Order — command path không dùng cache
+## Order — command path không dùng cache
 
 `POST /orders` chạy ba pha:
 
@@ -194,7 +194,7 @@ Pha 2  So expected_price client gửi lên với giá DB
 Pha 3  unit_price = product_sizes.price tại thời điểm checkout
 ```
 
-## Cart gửi gì
+### Cart gửi gì
 
 ```json
 { "items": [ { "size_id": 2, "quantity": 2, "expected_price": 40000 } ] }
@@ -212,7 +212,7 @@ lấy source of truth từ DB. Redis chỉ phục vụ read-heavy flow như brow
 
 ---
 
-# Giá đổi giữa lúc xem menu và lúc đặt
+## Giá đổi giữa lúc xem menu và lúc đặt
 
 Đây là vấn đề nêu trong `isssue.md`, và là lý do phải có pha 2.
 
@@ -225,7 +225,7 @@ lấy source of truth từ DB. Redis chỉ phục vụ read-heavy flow như brow
 Hệ thống này theo **Option 1** của `isssue.md`: lấy giá tại thời điểm checkout, **và báo cho
 khách biết** thay vì lặng lẽ tính giá mới.
 
-## Response 409
+### Response 409
 
 ```json
 {
@@ -244,7 +244,7 @@ thử lại từng món.
 
 Khách xem giá mới rồi xác nhận → client gửi lại với `expected_price` = giá mới → 201.
 
-## catalog_refreshed — chữa cache, nhưng chỉ khi cache thật sự sai
+### catalog_refreshed — chữa cache, nhưng chỉ khi cache thật sự sai
 
 Giá lệch **không** đồng nghĩa cache sai. Có hai tình huống hoàn toàn khác nhau:
 
@@ -270,13 +270,13 @@ Xoá bằng `DEL`, **không** rebuild — đúng tinh thần cache-aside, `GET /
 Món bị tắt giữa chừng cũng đi qua đúng cơ chế này, trả `400 size N is not available` kèm
 `catalog_refreshed`.
 
-## Vì sao không giải quyết ở tầng cache
+### Vì sao không giải quyết ở tầng cache
 
 Bỏ Redis đi hoàn toàn thì race này **vẫn còn nguyên**: khách mở menu 10:00, admin đổi giá 10:05, khách
 đặt 10:10. Cache chỉ *nới rộng* cửa sổ (tối đa hết TTL thay vì vài phút khách ngồi xem menu), không
 phải nguyên nhân. Nên nó phải được xử lý ở tầng checkout, không phải bằng cách cố làm cache realtime.
 
-## Phương án không chọn
+### Phương án không chọn
 
 `isssue.md` còn nêu Option 2: khoá giá lúc add to cart (`locked_price` + `expired_at`, kiểu hệ
 thống booking). Không dùng vì F&B không cần — khách gọi món rồi thanh toán trong vài phút, và việc giữ
@@ -284,7 +284,7 @@ giá tạo ra state phải quản lý vòng đời.
 
 ---
 
-# Cache Lifecycle
+## Cache Lifecycle
 
 ```text
             GET Catalog
@@ -337,7 +337,7 @@ POST /orders
 
 ---
 
-# So sánh với Read Model (phương án đã cân nhắc rồi bỏ)
+## So sánh với Read Model (phương án đã cân nhắc rồi bỏ)
 
 Phương án còn lại là biến Redis thành read model: warm-up lúc start, rebuild + `SET` sau mỗi write,
 resync định kỳ 5 phút. Xem `docs/implement-plan.md`.
@@ -357,25 +357,25 @@ truth"* — đó là một đánh đổi có ý thức, không phải bỏ sót.
 
 ---
 
-# Advantages
+## Advantages
 
-* Implementation đơn giản, ít cơ chế nền, dễ suy luận.
-* Redis down không làm chết API — chỉ chậm hơn.
-* Không tốn tài nguyên duy trì cache cho client không ai đọc.
-* Invalidation chỉ một dòng `DEL`, không có logic patch JSON.
-* Không có tải nền định kỳ lên DB.
+- Implementation đơn giản, ít cơ chế nền, dễ suy luận.
+- Redis down không làm chết API — chỉ chậm hơn.
+- Không tốn tài nguyên duy trì cache cho client không ai đọc.
+- Invalidation chỉ một dòng `DEL`, không có logic patch JSON.
+- Không có tải nền định kỳ lên DB.
 
-# Disadvantages
+## Disadvantages
 
-* Request đầu tiên sau mỗi write luôn là miss → chậm hơn.
-* **Cache stampede**: N request đồng thời vào key vừa bị `DEL` sẽ cùng query DB. Fix bằng
+- Request đầu tiên sau mỗi write luôn là miss → chậm hơn.
+- **Cache stampede**: N request đồng thời vào key vừa bị `DEL` sẽ cùng query DB. Fix bằng
   `singleflight` nếu cần — bản demo này không làm.
-* **Race "DEL trước, SET sau"** khiến cache stale cả tiếng (xem dưới).
-* Ai sửa thẳng dưới DB thì cache sai tới khi hết TTL, không có cơ chế tự chữa.
-* Stale window giữa lúc client đọc menu và lúc đặt hàng — xử lý bằng cách order luôn đọc DB và trả
+- **Race "DEL trước, SET sau"** khiến cache stale cả tiếng (xem dưới).
+- Ai sửa thẳng dưới DB thì cache sai tới khi hết TTL, không có cơ chế tự chữa.
+- Stale window giữa lúc client đọc menu và lúc đặt hàng — xử lý bằng cách order luôn đọc DB và trả
   409 `price_changed` khi giá lệch, không phải bằng cách cố làm cache realtime.
 
-## Race "DEL trước, SET sau"
+### Race "DEL trước, SET sau"
 
 Điểm yếu kinh điển của Cache Aside:
 
@@ -395,18 +395,78 @@ key. Bản demo chấp nhận và dựa vào TTL.
 
 ---
 
-# Future Improvements
+## Future Improvements
 
 Thiết kế này hợp với catalog cỡ vài chục đến vài trăm product mỗi client. Ngưỡng cần xem lại:
 
-* **Catalog lên hàng nghìn product** → payload một key quá lớn, cân nhắc chia
+- **Catalog lên hàng nghìn product** → payload một key quá lớn, cân nhắc chia
   `client:{id}:category:{catId}`.
-* **Write trở nên thường xuyên** → miss liên tục, lúc đó rebuild-on-write (read model) đáng giá hơn.
-* **Bắt buộc Redis luôn có đủ data** → quay lại read model có warm-up + resync.
-* **Mỗi store có giá / tồn kho / khuyến mãi riêng** → tách thêm key theo store:
+- **Write trở nên thường xuyên** → miss liên tục, lúc đó rebuild-on-write (read model) đáng giá hơn.
+- **Bắt buộc Redis luôn có đủ data** → quay lại read model có warm-up + resync.
+- **Mỗi store có giá / tồn kho / khuyến mãi riêng** → tách thêm key theo store:
 
-```
+```text
 client:{clientId}:catalog
 store:{storeId}:inventory
 store:{storeId}:promotion
 ```
+
+---
+
+## Hỏi & đáp — khi nào `reconcileStaleCache` trả `false`?
+
+> Là chỉ có 1 case người dùng vào web quá lâu nhưng không order, cache lúc này vẫn đúng, chỉ có
+> data người dùng gửi lên bị sai, nên mới lỗi 409 và không refresh lại cache?
+
+Đúng, đó là case phổ biến nhất — nhưng không phải case duy nhất trả `false`. Có 5 nhánh.
+
+### Cách nghĩ: hai trục độc lập
+
+- **Trục A** — browser khách có cũ không? → quyết định có 409 hay không
+- **Trục B** — cache có lệch DB không? → quyết định `reconcileStaleCache` trả `true`/`false`
+
+Hai trục này độc lập nhau. 409 chỉ nói cho bạn biết trục A, không nói gì về trục B — nên mới phải đi
+hỏi Redis.
+
+| # | Tình huống | Cache | Return | Vì sao không xoá |
+| --- | --- | --- | --- | --- |
+| 1 | Browser mở lâu, admin sửa giá, write path đã `DEL` + ai đó nạp lại | đúng | `false` | Cache đúng, xoá là phá |
+| 2 | Cache vừa hết TTL / vừa bị `DEL` bởi write path, chưa ai nạp lại | trống | `false` (`!hit`) | Không có key để xoá |
+| 3 | Client gửi `expected_price` bịa/sai do bug hoặc script | đúng | `false` | Đây chính là thứ cần chặn |
+| 4 | Redis down | không đọc được | `false` | `Get` fail → coi như miss (`redis.go:44-50`) |
+| 5 | Write path `DEL` fail lúc Redis chập, hoặc sửa thẳng DB | lệch thật | `true` | Xoá đúng chỗ |
+
+Case 1 là cái bạn mô tả. Nhưng case 2 và 4 cũng cho `false` mà lý do khác hẳn — cache không "đúng",
+nó không tồn tại / không đọc được. Kết quả cuối vẫn giống nhau: chẳng có gì để chữa.
+
+### Một chi tiết thú vị: `false` nhưng cache vẫn bị xoá
+
+`redis.go:53-56` — nếu payload trong Redis hỏng (JSON không parse được), `Get` tự gọi `Del` rồi trả
+`hit=false`. Lúc đó `reconcileStaleCache` trả `false` nhưng key đã bị dọn sạch. Nên
+`catalog_refreshed` không phải chỉ báo chính xác 100% cho "cache có được đụng tới không" — nó chỉ nói
+"nhánh reconcile có xoá không".
+
+### Lỗ hổng ngược lại đáng chú ý hơn
+
+Hàm này chỉ chạy khi có 409/400. Nghĩa là:
+
+> Cache đang lệch DB, nhưng browser khách cũng lấy từ đúng cái cache lệch đó → `expected_price` khớp
+> `size.Price`? **Không** — `size.Price` đọc từ DB (`order.go:42`), nên vẫn lệch → vẫn 409 → vẫn
+> được phát hiện. ✅
+
+Nhưng:
+
+> Cache lệch DB, mà tất cả khách đang cầm giá mới (vừa reload trước khi cache lệch) → không ai bị 409
+> → `reconcileStaleCache` không bao giờ được gọi → cache cứ lệch cho tới khi hết TTL.
+
+Nên nhắc lại điểm ở câu trước: đây là **lưới an toàn cơ hội** (opportunistic), không phải cơ chế phát
+hiện lệch chủ động. Muốn chủ động thì phải là write-path invalidation cho chắc
+(`main.go:122/149/171/200`) + TTL làm chốt chặn cuối.
+
+### Chốt lại
+
+> "không refresh lại cache?"
+
+Chính xác, và đúng là không cần. Thứ đang cũ là cái tab browser, không phải Redis. Refresh Redis
+không sửa được browser. Cái sửa được browser là: client nhận 409 → gọi lại `GET /menu` → nhận giá
+mới. Việc đó xảy ra bất kể `catalog_refreshed` là gì.
