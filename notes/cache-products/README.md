@@ -21,10 +21,12 @@ Giá nằm ở **size**, không nằm ở product. Món bán một giá vẫn c�
 | `postgres.go` | `CatalogRepo` — toàn bộ thao tác Postgres qua GORM |
 | `redis.go` | `CatalogCache` — toàn bộ thao tác Redis |
 | `seed.go` | Menu mẫu của 2 client, chỉ chạy khi bảng `clients` rỗng |
+| `test.sh` | Chạy tự động 40 test case, in PASS/FAIL |
 
 | Tài liệu | Nội dung |
 | --- | --- |
 | `docs.md` | Thiết kế cache-aside cho catalog |
+| `docs/test-cases.md` | 40 test case để test tay, kèm output mong đợi |
 | `docs/new-requirement-plan-1.md` → `docs/implement-plan-1.md` | Plan hiện tại |
 | `docs/new-requirement-plan.md` → `docs/implement-plan.md` | Phương án read model đã cân nhắc rồi bỏ |
 | `isssue.md` | Vấn đề stale price lúc checkout |
