@@ -1052,6 +1052,35 @@ Cần TTL ngắn để object mới tạo không bị ẩn quá lâu.
 
 > Mỗi JWT nên có `jti`. Khi revoke token, set key `blacklist:jti:{jti} = 1` với TTL bằng thời gian còn lại của token. Mỗi request validate signature/exp xong check Redis xem `jti` có bị blacklist không. Dùng String key có TTL tốt hơn Set, vì mỗi token có TTL riêng.
 
+### "Bạn đã dùng Redis trong dự án thực tế chưa?" — khi project không dùng Redis
+
+Tình huống: project hiện tại **không dùng Redis**, nhưng vẫn muốn thể hiện hiểu Redis sâu. Cách trả lời: nói thật lý do project không cần, rồi chuyển sang phần tự nghiên cứu (tự implement Redis bằng Go) — biến điểm yếu thành điểm mạnh.
+
+> Hiện tại project tôi đang làm thực tế không sử dụng Redis. Lý do là hệ thống được thiết kế cho các máy POS có khả năng chạy offline, nên kiến trúc không phụ thuộc nhiều vào Redis để cache hay chia sẻ state giữa các service.
+>
+> Tuy nhiên, vì Redis là một thành phần rất phổ biến trong kiến trúc backend và microservice, nên tôi đã tự nghiên cứu và **tự implement một Redis server đơn giản bằng Golang** để hiểu rõ cách Redis hoạt động bên trong, thay vì chỉ dùng thư viện để kết nối tới Redis có sẵn. Tôi làm từ command parsing, data structure, AOF persistence, TTL, eviction policy, Pub/Sub đến graceful shutdown.
+>
+> Ban đầu tôi implement các command cơ bản như `PING`, `ECHO`, `GET`, `SET`, sau đó hỗ trợ các kiểu dữ liệu String, List, Set và Hash.
+
+**Kể tiếp phần dưới nếu interviewer hứng thú** — đây là các "design decision" / "bug" mà interviewer thường thích nghe:
+
+* **AOF persistence** — mỗi lệnh ghi (`SET`, `DEL`...) được append vào file; khi restart thì replay lại các command để khôi phục dữ liệu.
+* **TTL và AOF (điểm rất hay để kể):** Redis cho truyền TTL tương đối (ví dụ 10 giây). Nếu chỉ ghi "10 giây" vào AOF thì sau restart TTL sẽ sai. Vì vậy tôi phải **chuyển TTL tương đối thành thời điểm hết hạn tuyệt đối (Unix timestamp)** trước khi lưu, để sau khi recover thì thời gian hết hạn vẫn chính xác.
+* **Eviction policy** — LRU, LFU, Random và các biến thể `volatile-*` (chỉ evict key có TTL). Redis là in-memory nên RAM có giới hạn và khá đắt; khi bộ nhớ đầy cần eviction để loại key ít giá trị thay vì không ghi được thêm.
+* **Pub/Sub (phần thú vị nhất, liên quan concurrency trong Go):** khi client subscribe vào channel thì kết nối chuyển sang trạng thái luôn chờ message mới, khác với client chỉ request rồi disconnect. Tôi dùng goroutine và channel để quản lý subscriber và broadcast message tới tất cả client đang subscribe.
+* **Graceful shutdown** — trước khi process kết thúc, đảm bảo AOF được flush xuống đĩa và các goroutine đóng đúng cách.
+
+**Sau đó** mới nói về use case của Redis (đừng nói use case trước rồi mới quay lại implementation — tách rõ hai phần):
+
+> Về mặt ứng dụng thực tế, theo tôi Redis thường được dùng trong các trường hợp:
+>
+> * Cache dữ liệu đọc nhiều nhưng ít thay đổi — product, category, system configuration.
+> * Cache permission/role của user để giảm số lần truy cập database.
+> * Session storage.
+> * Rate limiting hoặc distributed locking.
+> * Pub/Sub cho các notification nhẹ giữa các service.
+> * Sorted Set cho leaderboard hoặc reminder theo thời gian, vì Redis hỗ trợ sắp xếp theo score rất hiệu quả.
+
 ---
 
 ## 8. Câu hỏi phỏng vấn Redis hay gặp nhất
