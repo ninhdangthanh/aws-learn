@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: matview_pg
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: matview_lab
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./sql/001-schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./sql/002-seed.sql:/docker-entrypoint-initdb.d/002-seed.sql:ro
+      - ./sql/003-matviews.sql:/docker-entrypoint-initdb.d/003-matviews.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d matview_lab"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Refresher: cứ 30s gọi refresh_all_matviews() một lần.
+  # Đây là cách portable nhất — không cần extension pg_cron.
+  refresher:
+    image: postgres:16-alpine
+    container_name: matview_refresher
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: app
+      PGPASSWORD: app
+      PGDATABASE: matview_lab
+      REFRESH_INTERVAL: 30
+    volumes:
+      - ./refresher.sh:/refresher.sh:ro
+    entrypoint: ["/bin/sh", "/refresher.sh"]
+    restart: unless-stopped
