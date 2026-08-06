@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package order.v1;
+
+option go_package = "github.com/ninhdang/go-jeager/gen/order/v1;orderv1";
+
+service OrderService {
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+}
+
+message CreateOrderRequest {
+  string sku = 1;
+  int32 qty = 2;
+  string customer = 3;
+}
+
+message CreateOrderResponse {
+  string order_id = 1;
+  string status = 2;
+  int32 remaining_stock = 3;
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  string order_id = 1;
+  string sku = 2;
+  int32 qty = 3;
+  string status = 4;
+  string customer = 5;
+}

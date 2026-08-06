@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "github.com/ninhdang/go-jeager/gen/inventory/v1;inventoryv1";
+
+service InventoryService {
+  rpc Reserve(ReserveRequest) returns (ReserveResponse);
+  rpc GetStock(GetStockRequest) returns (GetStockResponse);
+}
+
+message ReserveRequest {
+  string order_id = 1;
+  string sku = 2;
+  int32 qty = 3;
+}
+
+message ReserveResponse {
+  string sku = 1;
+  int32 remaining = 2;
+}
+
+message GetStockRequest {
+  string sku = 1;
+}
+
+message GetStockResponse {
+  string sku = 1;
+  int32 available = 2;
+}
