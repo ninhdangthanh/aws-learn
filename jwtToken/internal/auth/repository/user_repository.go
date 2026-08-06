@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -51,6 +52,40 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*user.User, e
 		return nil, fmt.Errorf("repository: find user by id: %w", err)
 	}
 	return &u, nil
+}
+
+// IncrementTokenVersion tăng token_version lên 1 và trả về giá trị mới.
+// Đây là công tắc "Logout All" (Bài 9): mọi access token đang lưu hành mang
+// ver cũ sẽ bị middleware từ chối ở lần kiểm tra kế tiếp.
+// UPDATE ... RETURNING chạy nguyên tử, không bị race giữa read và write.
+func (r *UserRepository) IncrementTokenVersion(ctx context.Context, userID string) (int, error) {
+	var newVersion int
+	err := r.db.WithContext(ctx).Raw(
+		`UPDATE users SET token_version = token_version + 1, updated_at = now()
+		 WHERE id = ? RETURNING token_version`, userID,
+	).Scan(&newVersion).Error
+	if err != nil {
+		return 0, fmt.Errorf("repository: increment token version: %w", err)
+	}
+	if newVersion == 0 {
+		return 0, ErrUserNotFound
+	}
+	return newVersion, nil
+}
+
+// UpdatePassword đổi password_hash của user.
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+	res := r.db.WithContext(ctx).
+		Model(&user.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]any{"password_hash": passwordHash, "updated_at": time.Now()})
+	if res.Error != nil {
+		return fmt.Errorf("repository: update password: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 // ExistsByEmail dùng cho pre-check lúc đăng ký; unique index vẫn là chốt chặn cuối.

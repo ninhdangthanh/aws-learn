@@ -64,7 +64,8 @@ func run() error {
 	tokenStore := repository.NewTokenStore(redisClient)
 
 	authService := service.NewAuthService(userRepo, refreshRepo, tokenStore, jwtManager)
-	authHandler := handler.NewAuthHandler(authService, jwtManager)
+	tokenGuard := service.NewTokenGuard(userRepo, tokenStore)
+	authHandler := handler.NewAuthHandler(authService, jwtManager, tokenGuard)
 
 	// --- HTTP ---
 	if !isDev {

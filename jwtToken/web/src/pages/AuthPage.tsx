@@ -40,7 +40,7 @@ export function AuthPage() {
     <div className="centered">
       <div className="card auth-card">
         <h1>{mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</h1>
-        <p className="muted">JWT Auth · Phase 1 (Access + Refresh Token)</p>
+        <p className="muted">JWT Auth · Phase 2 (Rotation · Blacklist · Token Version)</p>
 
         <div className="tabs">
           <button

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import { authApi, tokenStore } from '../api/client'
 import { ApiError, type SessionInfo } from '../api/types'
@@ -15,7 +15,7 @@ interface LogEntry {
 let logSeq = 0
 
 export function DashboardPage() {
-  const { user, logout } = useAuth()
+  const { user, logout, logoutAll, changePassword } = useAuth()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
   // Tick mỗi giây để đếm ngược hạn của access token đang giữ trong memory.
@@ -49,6 +49,10 @@ export function DashboardPage() {
   const claims = accessToken ? decodeJwt(accessToken) : null
   const secondsLeft = claims ? claims.exp - now : 0
 
+  // Rotation: mỗi lần refresh, jti của refresh token phải đổi sang giá trị mới.
+  const refreshToken = tokenStore.getRefreshToken()
+  const refreshClaims = refreshToken ? decodeJwt(refreshToken) : null
+
   async function callMe() {
     try {
       const res = await authApi.me()
@@ -59,9 +63,37 @@ export function DashboardPage() {
   }
 
   async function forceRefresh() {
+    const oldJti = refreshClaims?.jti.slice(0, 8) ?? '—'
     const ok = await authApi.refresh()
-    appendLog(ok ? 'POST /auth/refresh → access token mới' : 'POST /auth/refresh → thất bại', ok)
-    if (ok) setNow(Math.floor(Date.now() / 1000))
+    if (ok) {
+      const next = tokenStore.getRefreshToken()
+      const newJti = (next ? decodeJwt(next)?.jti : null)?.slice(0, 8) ?? '—'
+      appendLog(`POST /auth/refresh → rotate refresh ${oldJti} → ${newJti}`, true)
+      setNow(Math.floor(Date.now() / 1000))
+      void loadSessions()
+    } else {
+      appendLog('POST /auth/refresh → 401, refresh token đã bị thu hồi', false)
+    }
+  }
+
+  // Dùng lại refresh token cũ sau khi đã rotate: minh hoạ Bài 3, phải nhận 401.
+  async function replayOldRefresh() {
+    const stale = refreshToken
+    if (!stale) return
+
+    const ok = await authApi.refresh()
+    if (!ok) {
+      appendLog('Không rotate được để lấy token cũ', false)
+      return
+    }
+
+    const res = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1'}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: stale }),
+    })
+    appendLog(`Dùng lại refresh token cũ → ${res.status} ${res.ok ? '(SAI!)' : '(đúng, đã bị thu hồi)'}`, !res.ok)
+    setNow(Math.floor(Date.now() / 1000))
   }
 
   return (
@@ -71,9 +103,14 @@ export function DashboardPage() {
           <strong>{user?.full_name || user?.email}</strong>
           <div className="muted small">{user?.email}</div>
         </div>
-        <button className="ghost" onClick={() => void logout()}>
-          Đăng xuất
-        </button>
+        <div className="actions">
+          <button className="ghost" onClick={() => void logout()}>
+            Đăng xuất
+          </button>
+          <button className="danger" onClick={() => void logoutAll()}>
+            Đăng xuất tất cả thiết bị
+          </button>
+        </div>
       </header>
 
       <div className="grid">
@@ -92,7 +129,9 @@ export function DashboardPage() {
               <dt>typ</dt>
               <dd>{claims.typ}</dd>
               <dt>ver</dt>
-              <dd>{claims.ver}</dd>
+              <dd>
+                {claims.ver} <span className="muted small">so với token_version trong DB</span>
+              </dd>
               <dt>exp</dt>
               <dd>
                 {new Date(claims.exp * 1000).toLocaleTimeString()}{' '}
@@ -109,14 +148,41 @@ export function DashboardPage() {
             <button className="primary" onClick={() => void callMe()}>
               Gọi GET /me
             </button>
-            <button className="ghost" onClick={() => void forceRefresh()}>
-              Refresh thủ công
-            </button>
             <button className="ghost" onClick={() => void loadSessions()}>
               Tải lại sessions
             </button>
           </div>
         </section>
+
+        <section className="card">
+          <h2>Refresh token (rotation)</h2>
+          <p className="muted small">
+            Mỗi lần refresh, jti cũ bị <code>DEL</code> khỏi Redis và thay bằng jti mới. Token cũ
+            dùng lại sẽ nhận 401.
+          </p>
+          {refreshClaims ? (
+            <dl className="kv">
+              <dt>jti</dt>
+              <dd className="mono">{refreshClaims.jti}</dd>
+              <dt>device</dt>
+              <dd className="mono">{refreshClaims.device_id ?? '—'}</dd>
+              <dt>exp</dt>
+              <dd>{new Date(refreshClaims.exp * 1000).toLocaleString()}</dd>
+            </dl>
+          ) : (
+            <p className="muted">Không có refresh token.</p>
+          )}
+          <div className="actions">
+            <button className="ghost" onClick={() => void forceRefresh()}>
+              Rotate ngay
+            </button>
+            <button className="ghost" onClick={() => void replayOldRefresh()}>
+              Thử dùng lại token cũ
+            </button>
+          </div>
+        </section>
+
+        <ChangePasswordCard onSubmit={changePassword} onLog={appendLog} />
 
         <section className="card">
           <h2>Thiết bị đang đăng nhập ({sessions.length})</h2>
@@ -163,5 +229,67 @@ export function DashboardPage() {
         </section>
       </div>
     </div>
+  )
+}
+
+interface ChangePasswordCardProps {
+  onSubmit: (currentPassword: string, newPassword: string) => Promise<void>
+  onLog: (text: string, ok: boolean) => void
+}
+
+function ChangePasswordCard({ onSubmit, onLog }: ChangePasswordCardProps) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await onSubmit(current, next)
+      setCurrent('')
+      setNext('')
+      onLog('Đổi mật khẩu thành công · token_version++ · cấp token mới', true)
+    } catch (err) {
+      onLog(err instanceof ApiError ? `Đổi mật khẩu: ${err.message}` : 'Lỗi mạng', false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>Đổi mật khẩu</h2>
+      <p className="muted small">
+        Tăng <code>token_version</code> nên mọi phiên khác bị đá ra ngay; thiết bị này được cấp
+        token mới.
+      </p>
+      <form onSubmit={handleSubmit}>
+        <label>
+          Mật khẩu hiện tại
+          <input
+            type="password"
+            required
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+        <label>
+          Mật khẩu mới
+          <input
+            type="password"
+            required
+            minLength={8}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            autoComplete="new-password"
+          />
+        </label>
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? 'Đang đổi…' : 'Đổi mật khẩu'}
+        </button>
+      </form>
+    </section>
   )
 }

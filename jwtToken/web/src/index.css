@@ -151,6 +151,14 @@ button:disabled {
   color: var(--text);
 }
 
+.danger {
+  padding: 9px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
+
 .alert {
   padding: 9px 11px;
   border-radius: 8px;

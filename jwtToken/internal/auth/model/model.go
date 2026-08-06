@@ -46,6 +46,13 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8,max=72"`
+	// DeviceID của thiết bị hiện tại, để cấp lại token sau khi thu hồi tất cả.
+	DeviceID string `json:"device_id" binding:"max=64"`
+}
+
 // ---- Response DTOs ----
 
 type TokenPair struct {

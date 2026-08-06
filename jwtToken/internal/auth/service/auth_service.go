@@ -22,6 +22,7 @@ var (
 	ErrInvalidCredentials = errors.New("service: invalid email or password")
 	ErrInvalidRefresh     = errors.New("service: refresh token is invalid or expired")
 	ErrUserNotFound       = errors.New("service: user not found")
+	ErrSamePassword       = errors.New("service: new password must differ from the current one")
 )
 
 // RequestMeta là thông tin ngữ cảnh của request, dùng cho audit phiên đăng nhập.
@@ -101,8 +102,11 @@ func (s *AuthService) Login(ctx context.Context, req model.LoginRequest, meta Re
 	return s.issueSession(ctx, u, req.DeviceID, meta)
 }
 
-// Refresh (Bài 2): verify refresh token -> kiểm tra Redis -> cấp access token mới.
-// Phase 1 chưa xoay vòng refresh token; rotation là Bài 3 của Phase 2.
+// Refresh (Bài 2 + Bài 3): verify refresh token -> kiểm tra Redis -> xoay vòng.
+//
+// Rotation: refresh token cũ bị xoá khỏi Redis và thay bằng một jti hoàn toàn
+// mới. Mỗi refresh token vì thế chỉ dùng được đúng một lần — kẻ đánh cắp có
+// dùng lại token cũ cũng chỉ nhận 401.
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.TokenPair, error) {
 	claims, err := s.jwt.Parse(refreshToken, jwt.TokenTypeRefresh)
 	if err != nil {
@@ -128,28 +132,46 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.
 		}
 		return nil, err
 	}
+	// Token phát ra trước khi user logout-all thì không được phép đổi lấy token mới.
+	if claims.TokenVersion != u.TokenVersion {
+		return nil, ErrInvalidRefresh
+	}
 
-	access, err := s.jwt.GenerateAccessToken(u.ID, u.Email, u.TokenVersion)
-	if err != nil {
+	// Xoá token cũ TRƯỚC khi phát token mới: nếu bước sau lỗi, user phải đăng
+	// nhập lại — chấp nhận được. Ngược lại (phát mới rồi mới xoá) sẽ có cửa sổ
+	// tồn tại hai refresh token cùng hiệu lực.
+	if err := s.tokens.DeleteRefresh(ctx, claims.ID, claims.Subject); err != nil {
+		return nil, err
+	}
+	if err := s.refresh.Revoke(ctx, claims.ID); err != nil {
 		return nil, err
 	}
 
-	return &model.TokenPair{
-		AccessToken:  access.Value,
-		RefreshToken: refreshToken, // giữ nguyên ở Phase 1
-		TokenType:    "Bearer",
-		ExpiresIn:    int(s.jwt.AccessTTL().Seconds()),
-		DeviceID:     sess.DeviceID,
-	}, nil
+	res, err := s.issueSession(ctx, u, sess.DeviceID, RequestMeta{
+		UserAgent: sess.UserAgent,
+		IP:        sess.IP,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &res.Tokens, nil
 }
 
-// Logout xoá refresh token của một thiết bị.
-// Access token hiện tại vẫn sống tới khi hết hạn (tối đa AccessTTL) — muốn giết
-// ngay thì cần blacklist, đó là Bài 5/Bài 8 của Phase 2.
-func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+// Logout (Bài 8): xoá refresh token + đưa access token hiện tại vào blacklist.
+// Không blacklist thì access token vẫn sống thêm tới 15 phút sau khi bấm
+// "đăng xuất" — đúng nghĩa là chưa đăng xuất.
+func (s *AuthService) Logout(ctx context.Context, access *jwt.Claims, refreshToken string) error {
+	if err := s.blacklistAccess(ctx, access); err != nil {
+		return err
+	}
+
 	claims, err := s.jwt.Parse(refreshToken, jwt.TokenTypeRefresh)
 	if err != nil {
-		// Token rác thì coi như đã logout: idempotent, không báo lỗi cho client.
+		// Refresh token rác/hết hạn: access đã bị chặn rồi, coi như xong.
+		return nil
+	}
+	// Chỉ cho xoá refresh token của chính mình.
+	if claims.Subject != access.Subject {
 		return nil
 	}
 
@@ -157,6 +179,92 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 		return err
 	}
 	return s.refresh.Revoke(ctx, claims.ID)
+}
+
+// LogoutAll (Bài 9): tăng token_version + xoá sạch refresh token của user.
+//
+// token_version++ vô hiệu hoá mọi access token đang lưu hành trong một thao tác
+// duy nhất — không cần biết chúng là những jti nào, cũng không cần blacklist
+// từng cái. Đây là lý do token_version tồn tại.
+func (s *AuthService) LogoutAll(ctx context.Context, userID string) error {
+	newVersion, err := s.users.IncrementTokenVersion(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	// Ghi đè cache ngay để lệnh thu hồi có hiệu lực tức thì, không phải chờ TTL.
+	if err := s.tokens.SetTokenVersion(ctx, userID, newVersion, tokenVersionCacheTTL); err != nil {
+		return err
+	}
+
+	return s.revokeAllRefresh(ctx, userID)
+}
+
+// ChangePassword đổi mật khẩu rồi đá mọi phiên khác ra ngoài, và cấp cho thiết
+// bị hiện tại một cặp token mới để user không bị tự đăng xuất chính mình.
+func (s *AuthService) ChangePassword(
+	ctx context.Context,
+	userID string,
+	req model.ChangePasswordRequest,
+	meta RequestMeta,
+) (*model.AuthResponse, error) {
+	u, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	if err := password.Compare(u.PasswordHash, req.CurrentPassword); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	if req.CurrentPassword == req.NewPassword {
+		return nil, ErrSamePassword
+	}
+
+	hash, err := password.Hash(req.NewPassword)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.users.UpdatePassword(ctx, u.ID, hash); err != nil {
+		return nil, err
+	}
+
+	// Đổi mật khẩu thường là phản ứng khi nghi bị lộ tài khoản → thu hồi tất cả.
+	newVersion, err := s.users.IncrementTokenVersion(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.tokens.SetTokenVersion(ctx, u.ID, newVersion, tokenVersionCacheTTL); err != nil {
+		return nil, err
+	}
+	if err := s.revokeAllRefresh(ctx, u.ID); err != nil {
+		return nil, err
+	}
+
+	u.PasswordHash = hash
+	u.TokenVersion = newVersion
+	return s.issueSession(ctx, u, req.DeviceID, meta)
+}
+
+// revokeAllRefresh xoá refresh token của user ở cả Redis lẫn PostgreSQL.
+func (s *AuthService) revokeAllRefresh(ctx context.Context, userID string) error {
+	if _, err := s.tokens.DeleteAllRefreshByUser(ctx, userID); err != nil {
+		return err
+	}
+	return s.refresh.RevokeAllByUser(ctx, userID)
+}
+
+// blacklistAccess chặn access token hiện tại trong đúng thời gian sống còn lại.
+func (s *AuthService) blacklistAccess(ctx context.Context, access *jwt.Claims) error {
+	if access == nil || access.ExpiresAt == nil {
+		return nil
+	}
+	return s.tokens.BlacklistAccess(ctx, access.ID, time.Until(access.ExpiresAt.Time))
 }
 
 // Me trả về profile của user đang đăng nhập.

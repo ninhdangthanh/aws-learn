@@ -15,27 +15,32 @@ import (
 
 // AuthHandler map HTTP <-> AuthService.
 type AuthHandler struct {
-	svc *service.AuthService
-	jwt *jwt.Manager
+	svc   *service.AuthService
+	jwt   *jwt.Manager
+	guard middleware.Guard
 }
 
-func NewAuthHandler(svc *service.AuthService, jwtManager *jwt.Manager) *AuthHandler {
-	return &AuthHandler{svc: svc, jwt: jwtManager}
+func NewAuthHandler(svc *service.AuthService, jwtManager *jwt.Manager, guard middleware.Guard) *AuthHandler {
+	return &AuthHandler{svc: svc, jwt: jwtManager, guard: guard}
 }
 
-// RegisterRoutes gắn toàn bộ route của Phase 1 vào router group.
+// RegisterRoutes gắn toàn bộ route vào router group.
 func (h *AuthHandler) RegisterRoutes(r *gin.RouterGroup) {
-	auth := r.Group("/auth")
+	// Public: chưa có (hoặc không còn) access token hợp lệ.
+	public := r.Group("/auth")
 	{
-		auth.POST("/register", h.Register)
-		auth.POST("/login", h.Login)
-		auth.POST("/refresh", h.Refresh)
-		auth.POST("/logout", h.Logout)
+		public.POST("/register", h.Register)
+		public.POST("/login", h.Login)
+		public.POST("/refresh", h.Refresh)
 	}
 
 	protected := r.Group("")
-	protected.Use(middleware.RequireAuth(h.jwt))
+	protected.Use(middleware.RequireAuth(h.jwt, h.guard))
 	{
+		// Logout cần access token để biết jti nào phải đưa vào blacklist.
+		protected.POST("/auth/logout", h.Logout)
+		protected.POST("/auth/logout-all", h.LogoutAll)
+		protected.POST("/auth/change-password", h.ChangePassword)
 		protected.GET("/me", h.Me)
 		protected.GET("/sessions", h.Sessions)
 	}
@@ -89,11 +94,33 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Logout(c.Request.Context(), req.RefreshToken); err != nil {
+	if err := h.svc.Logout(c.Request.Context(), middleware.Claims(c), req.RefreshToken); err != nil {
 		respondServiceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Đăng xuất thành công"})
+}
+
+func (h *AuthHandler) LogoutAll(c *gin.Context) {
+	if err := h.svc.LogoutAll(c.Request.Context(), middleware.UserID(c)); err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Đã đăng xuất khỏi tất cả thiết bị"})
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	var req model.ChangePasswordRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	res, err := h.svc.ChangePassword(c.Request.Context(), middleware.UserID(c), req, requestMeta(c))
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
@@ -144,6 +171,8 @@ func respondServiceError(c *gin.Context, err error) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_refresh_token", "message": "Refresh token không hợp lệ hoặc đã hết hạn"})
 	case errors.Is(err, service.ErrUserNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "user_not_found", "message": "Không tìm thấy người dùng"})
+	case errors.Is(err, service.ErrSamePassword):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "same_password", "message": "Mật khẩu mới phải khác mật khẩu hiện tại"})
 	default:
 		slog.Error("unhandled service error", "path", c.FullPath(), "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Có lỗi xảy ra, vui lòng thử lại"})

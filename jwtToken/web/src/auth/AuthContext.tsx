@@ -11,6 +11,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, fullName: string) => Promise<void>
   logout: () => Promise<void>
+  logoutAll: () => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -89,9 +91,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Logout All huỷ luôn phiên của chính thiết bị này (token_version++ áp cho mọi token).
+  const logoutAll = useCallback(async () => {
+    try {
+      await authApi.logoutAll()
+    } finally {
+      tokenStore.clear()
+      setUser(null)
+      setStatus('anonymous')
+    }
+  }, [])
+
+  // Đổi mật khẩu thu hồi mọi phiên, nhưng server cấp lại token mới cho thiết bị
+  // hiện tại nên user không bị tự đá ra ngoài.
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const res = await authApi.changePassword(currentPassword, newPassword)
+    tokenStore.save(res.tokens)
+    setUser(res.user)
+  }, [])
+
   const value = useMemo(
-    () => ({ user, status, login, register, logout }),
-    [user, status, login, register, logout],
+    () => ({ user, status, login, register, logout, logoutAll, changePassword }),
+    [user, status, login, register, logout, logoutAll, changePassword],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

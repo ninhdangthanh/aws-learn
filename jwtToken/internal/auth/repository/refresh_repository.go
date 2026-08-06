@@ -54,6 +54,18 @@ func (r *RefreshRepository) ListActiveByUser(ctx context.Context, userID string)
 	return tokens, nil
 }
 
+// RevokeAllByUser thu hồi mọi refresh token còn sống của user (Logout All - Bài 9).
+func (r *RefreshRepository) RevokeAllByUser(ctx context.Context, userID string) error {
+	err := r.db.WithContext(ctx).
+		Model(&model.RefreshToken{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update("revoked_at", time.Now()).Error
+	if err != nil {
+		return fmt.Errorf("repository: revoke all refresh tokens: %w", err)
+	}
+	return nil
+}
+
 // RevokeByUserAndDevice thu hồi refresh token cũ của cùng một thiết bị, tránh
 // mỗi lần login lại tạo thêm một hàng rác cho cùng device.
 func (r *RefreshRepository) RevokeByUserAndDevice(ctx context.Context, userID, deviceID string) error {

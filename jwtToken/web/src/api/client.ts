@@ -85,8 +85,17 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     onSessionExpired?.()
   }
 
+  // Token bị thu hồi (logout ở nơi khác, logout-all, đổi mật khẩu): refresh
+  // cũng vô nghĩa vì refresh token đã bị xoá — về thẳng màn đăng nhập.
+  if (res.status === 401 && REVOKED_CODES.has(code)) {
+    tokenStore.clear()
+    onSessionExpired?.()
+  }
+
   throw new ApiError(res.status, code, message)
 }
+
+const REVOKED_CODES = new Set(['token_revoked', 'token_version_mismatch'])
 
 /**
  * Gộp nhiều lời gọi refresh đồng thời vào một request duy nhất — nếu không,
@@ -134,14 +143,29 @@ export const authApi = {
 
   refresh: refreshAccessToken,
 
+  // Logout cần access token: server phải biết jti nào để đưa vào blacklist.
   logout: () => {
     const refreshToken = tokenStore.getRefreshToken()
     if (!refreshToken) return Promise.resolve()
     return request<{ message: string }>('/auth/logout', {
       method: 'POST',
+      auth: true,
       body: { refresh_token: refreshToken },
     })
   },
+
+  logoutAll: () => request<{ message: string }>('/auth/logout-all', { method: 'POST', auth: true }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<AuthResponse>('/auth/change-password', {
+      method: 'POST',
+      auth: true,
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        device_id: tokenStore.getDeviceId(),
+      },
+    }),
 
   me: () => request<{ user: User }>('/me', { auth: true }),
 
