@@ -1,0 +1,7 @@
+.env
+bin/
+keys/*.pem
+
+# frontend
+web/node_modules/
+web/dist/

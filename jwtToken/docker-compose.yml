@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jwt-auth-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jwtuser
+      POSTGRES_PASSWORD: jwtpass
+      POSTGRES_DB: jwtauth
+    # 5433/6380 vì 5432/6379 trên máy đang bị service khác chiếm.
+    ports:
+      - "5433:5432"
+    volumes:
+      - jwt_auth_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jwtuser -d jwtauth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: jwt-auth-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - jwt_auth_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jwt_auth_pgdata:
+  jwt_auth_redisdata:
