@@ -187,16 +187,16 @@ func (s *AuthService) Logout(ctx context.Context, access *jwt.Claims, refreshTok
 // duy nhất — không cần biết chúng là những jti nào, cũng không cần blacklist
 // từng cái. Đây là lý do token_version tồn tại.
 func (s *AuthService) LogoutAll(ctx context.Context, userID string) error {
-	newVersion, err := s.users.IncrementTokenVersion(ctx, userID)
-	if err != nil {
+	if _, err := s.users.IncrementTokenVersion(ctx, userID); err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return ErrUserNotFound
 		}
 		return err
 	}
 
-	// Ghi đè cache ngay để lệnh thu hồi có hiệu lực tức thì, không phải chờ TTL.
-	if err := s.tokens.SetTokenVersion(ctx, userID, newVersion, tokenVersionCacheTTL); err != nil {
+	// Xoá cache ngay để lệnh thu hồi có hiệu lực tức thì, không phải chờ TTL:
+	// request kế tiếp miss cache và đọc version mới thẳng từ PostgreSQL.
+	if err := s.tokens.DeleteTokenVersion(ctx, userID); err != nil {
 		return err
 	}
 
@@ -239,7 +239,7 @@ func (s *AuthService) ChangePassword(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.tokens.SetTokenVersion(ctx, u.ID, newVersion, tokenVersionCacheTTL); err != nil {
+	if err := s.tokens.DeleteTokenVersion(ctx, u.ID); err != nil {
 		return nil, err
 	}
 	if err := s.revokeAllRefresh(ctx, u.ID); err != nil {

@@ -172,12 +172,24 @@ func (s *TokenStore) GetTokenVersion(ctx context.Context, userID string) (int, e
 	return v, nil
 }
 
-// SetTokenVersion ghi token_version vào cache. Khi logout-all / đổi mật khẩu,
-// tầng service gọi hàm này với giá trị mới nên mọi request kế tiếp bị chặn ngay,
-// không phải chờ cache hết hạn.
+// SetTokenVersion nạp lại cache sau khi đọc từ PostgreSQL (cache-aside fill).
+// Chỉ đường đọc gọi hàm này; đường ghi dùng DeleteTokenVersion.
 func (s *TokenStore) SetTokenVersion(ctx context.Context, userID string, version int, ttl time.Duration) error {
 	if err := s.client.Set(ctx, userVerKey(userID), version, ttl).Err(); err != nil {
 		return fmt.Errorf("repository: set token version: %w", err)
+	}
+	return nil
+}
+
+// DeleteTokenVersion xoá cache khi token_version đổi (logout-all / đổi mật khẩu).
+//
+// Invalidate thay vì ghi đè giá trị mới: hai trạng thái hỏng của cache này không
+// đối xứng. Cache rỗng chỉ khiến request kế tiếp phải đọc PostgreSQL, còn cache
+// giữ version cũ thì token đáng lẽ đã bị thu hồi vẫn được chấp nhận cho tới khi
+// hết TTL. Xoá key chỉ có thể đẩy cache về trạng thái an toàn.
+func (s *TokenStore) DeleteTokenVersion(ctx context.Context, userID string) error {
+	if err := s.client.Del(ctx, userVerKey(userID)).Err(); err != nil {
+		return fmt.Errorf("repository: delete token version: %w", err)
 	}
 	return nil
 }

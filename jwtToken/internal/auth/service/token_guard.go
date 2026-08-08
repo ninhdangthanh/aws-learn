@@ -19,7 +19,7 @@ var (
 
 // tokenVersionCacheTTL: cache ngắn để giảm tải DB mà vẫn tự lành nếu có sai lệch.
 // Không phụ thuộc vào TTL này để thu hồi kịp thời — mọi thao tác đổi
-// token_version đều ghi đè cache ngay lập tức.
+// token_version đều xoá cache ngay lập tức.
 const tokenVersionCacheTTL = 10 * time.Minute
 
 // TokenGuard là phần kiểm tra *stateful* chạy sau khi chữ ký JWT đã hợp lệ.

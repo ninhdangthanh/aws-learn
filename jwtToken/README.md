@@ -85,9 +85,11 @@ theo, không cần biết chúng là những jti nào.
 **Cái giá của khả năng thu hồi** — Bài 1 nói middleware không cần chạm DB, nhưng
 muốn logout có hiệu lực tức thì thì phải tra state. Ở đây state nằm ở Redis
 (1 `EXISTS` blacklist + 1 `GET` version); PostgreSQL chỉ bị đụng khi cache
-`user:{id}:ver` miss. Mọi thao tác đổi `token_version` đều ghi đè cache ngay,
-nên thu hồi không phải chờ TTL. Redis chết thì middleware trả 503 chứ không cho
-qua — fail closed.
+`user:{id}:ver` miss. Mọi thao tác đổi `token_version` đều xoá cache ngay, nên
+thu hồi không phải chờ TTL: request kế tiếp miss và đọc version mới từ DB. Xoá
+chứ không ghi đè vì cache rỗng chỉ tốn thêm một lượt đọc DB, còn cache giữ
+version cũ thì token đã thu hồi vẫn qua được. Redis chết thì middleware trả 503
+chứ không cho qua — fail closed.
 
 ```
 Login   ──►  access (memory) + refresh (localStorage) + Redis refresh:{jti}
@@ -106,7 +108,7 @@ Refresh ──►  DEL refresh:{jti cũ}  ──►  SET refresh:{jti mới}  �
 Logout  ──►  SET blacklist:{access jti} EX <hạn còn lại>
              DEL refresh:{jti}  +  revoked_at trong DB
 
-LogoutAll ──►  token_version++  ──►  ghi đè cache ver
+LogoutAll ──►  token_version++  ──►  DEL cache user:{id}:ver
                DEL toàn bộ refresh:{jti} của user (qua set user:{id}:refresh)
 ```
 
