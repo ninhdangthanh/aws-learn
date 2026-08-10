@@ -1,14 +1,19 @@
 // Consumer: đọc từ order-events. Để tái hiện lock/delay rõ ràng, consumer
 // này LUÔN coi message là "thiếu context" (giống case OrderCancelled đến
-// trước OrderCreated) và escalate theo retry_count:
+// trước OrderCreated) nên mọi lần xử lý business đều fail.
 //
-//	retry_count=0 -> publish order-events.retry.10s (đợi 10s)
-//	retry_count=1 -> publish order-events.retry.30s (đợi 30s)
-//	retry_count=2 -> hết lượt retry -> nack(requeue=false), RabbitMQ tự
-//	                 dead-letter về order-events.dlq qua DLX của main queue
+// Chỉ có DUY NHẤT một retry queue TTL 30s. Message quay vòng qua nó, mỗi
+// vòng header retry_tick +1, và consumer dùng chính header đó để biết mình
+// đang ở đâu trên thang retry:
 //
-// Message dead-letter tự quay lại order-events sau khi TTL hết, nhờ cấu
-// hình x-dead-letter-exchange/x-dead-letter-routing-key ở internal/mq.
+//	tick=0                 -> message mới, xử lý luôn
+//	tick ∈ {1,2,4,10,20,60} -> tới mốc 30s/1m/2m/5m/10m/30m, xử lý lại
+//	tick ở giữa hai mốc     -> bỏ qua, đẩy thẳng lại retry queue
+//	tick > 60               -> hết lượt, nack(requeue=false) -> DLQ
+//
+// Đánh đổi có chủ ý: logic milestone nằm ở chính consumer chính, nên một
+// message chờ 30 phút sẽ đi qua đây 60 lần và bị bỏ qua 54 lần. Đổi lại
+// không cần scheduler process riêng và topology chỉ còn 3 queue.
 package main
 
 import (
@@ -19,22 +24,17 @@ import (
 	"queue-edge-cases/internal/mq"
 )
 
-func retryCountOf(headers amqp.Table) int {
-	v, ok := headers[mq.HeaderRetryCount]
-	if !ok {
-		return 0
+// park đẩy message sang retry queue với tick+1 rồi ack bản cũ. Phải publish
+// tay chứ không nack được, vì nack chỉ đẩy được về DLX cố định của main
+// queue (là DLQ), không route sang retry queue được.
+func park(ch *amqp.Channel, d amqp.Delivery, tick int) {
+	if err := mq.Publish(ch, mq.QueueRetry, d.Body, mq.WithTick(d.Headers, tick+1)); err != nil {
+		log.Printf("  publish sang %q thất bại: %v", mq.QueueRetry, err)
+		_ = d.Nack(false, true)
+		return
 	}
-	switch n := v.(type) {
-	case int32:
-		return int(n)
-	case int64:
-		return int(n)
-	case int16:
-		return int(n)
-	case int:
-		return n
-	default:
-		return 0
+	if err := d.Ack(false); err != nil {
+		log.Printf("  ack thất bại: %v", err)
 	}
 }
 
@@ -59,43 +59,27 @@ func main() {
 
 	for d := range deliveries {
 		eventID, _ := d.Headers[mq.HeaderEventID].(string)
-		retryCount := retryCountOf(d.Headers)
+		tick := mq.TickOf(d.Headers)
 
-		log.Printf("Nhận %s: retry_count=%d, body=%s", eventID, retryCount, string(d.Body))
-		log.Printf("  -> giả lập thiếu context, cần retry")
-
-		nextQueue, isDLQ := mq.NextQueueForRetry(retryCount)
-
-		// Hết lượt retry: nack(requeue=false) để RabbitMQ tự dead-letter về DLQ
-		// qua DLX của main queue. Atomic (không có khe hở publish-rồi-ack) và
-		// x-death được broker tự ghi cho bước manual check.
-		if isDLQ {
-			log.Printf("  -> hết lượt retry (retry_count=%d) => nack, dead-letter về %q để manual check", retryCount, mq.QueueDLQ)
+		switch mq.ActionForTick(tick) {
+		case mq.ActionDLQ:
+			log.Printf("Nhận %s: tick=%d, đã qua mốc cuối => hết lượt retry", eventID, tick)
+			log.Printf("  -> nack, dead-letter về %q để manual check", mq.QueueDLQ)
 			if err := d.Nack(false, false); err != nil {
 				log.Printf("  nack thất bại: %v", err)
 			}
-			continue
-		}
 
-		// Còn lượt retry: publish sang retry queue có delay rồi ACK message cũ.
-		// Chặng này phải publish tay vì đích thay đổi theo retry_count (nack chỉ
-		// đẩy được về một DLX cố định, không route động được).
-		headers := amqp.Table{
-			mq.HeaderEventID:    eventID,
-			mq.HeaderEventType:  d.Headers[mq.HeaderEventType],
-			mq.HeaderRetryCount: int32(retryCount + 1),
-		}
+		case mq.ActionWait:
+			// Tick giữa hai mốc: không đụng vào business, đẩy lại ngay.
+			log.Printf("Nhận %s: tick=%d (chưa tới mốc) -> quay lại %q", eventID, tick, mq.QueueRetry)
+			park(ch, d, tick)
 
-		if err := mq.Publish(ch, nextQueue, d.Body, headers); err != nil {
-			log.Printf("  publish sang %q thất bại: %v", nextQueue, err)
-			_ = d.Nack(false, true)
-			continue
-		}
-
-		log.Printf("  -> publish vào %q (retry_count=%d)", nextQueue, retryCount+1)
-
-		if err := d.Ack(false); err != nil {
-			log.Printf("  ack thất bại: %v", err)
+		case mq.ActionProcess:
+			log.Printf("Nhận %s: tick=%d (đã chờ %v), xử lý: %s",
+				eventID, tick, mq.ElapsedForTick(tick), string(d.Body))
+			log.Printf("  -> giả lập thiếu context, cần retry")
+			log.Printf("  -> park vào %q, mốc kế tiếp sẽ xử lý lại", mq.QueueRetry)
+			park(ch, d, tick)
 		}
 	}
 }

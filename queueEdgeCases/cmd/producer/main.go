@@ -1,5 +1,5 @@
-// Producer: publish 1 message test vào order-events với retry_count=0.
-// Dùng để châm ngòi cho vòng đời retry 10s -> 30s -> DLQ ở consumer.
+// Producer: publish 1 message test vào order-events với retry_tick=0.
+// Dùng để châm ngòi cho thang retry 30s/1m/2m/5m/10m/30m -> DLQ ở consumer.
 package main
 
 import (
@@ -38,14 +38,14 @@ func main() {
 	}
 
 	headers := amqp.Table{
-		mq.HeaderEventID:    event.EventID,
-		mq.HeaderEventType:  event.EventType,
-		mq.HeaderRetryCount: int32(0),
+		mq.HeaderEventID:   event.EventID,
+		mq.HeaderEventType: event.EventType,
+		mq.HeaderTick:      int32(0),
 	}
 
 	if err := mq.Publish(ch, mq.QueueMain, body, headers); err != nil {
 		log.Fatalf("publish thất bại: %v", err)
 	}
 
-	log.Printf("Đã publish %s vào %q (retry_count=0)", event.EventID, mq.QueueMain)
+	log.Printf("Đã publish %s vào %q (retry_tick=0)", event.EventID, mq.QueueMain)
 }
