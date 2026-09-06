@@ -19,7 +19,7 @@ import (
 const (
 	restAddr    = ":8080"
 	grpcAddr    = ":50051"
-	grpcWebAddr = ":8081"
+	grpcWebAddr = ":8082"
 )
 
 func main() {

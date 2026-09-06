@@ -109,7 +109,7 @@ export default function App() {
       <div className="ports">
         <Port label="REST/JSON" addr=":8080" who="browser, curl, Postman" tone="ok" />
         <Port label="gRPC thuần" addr=":50051" who="Go client, grpcurl — KHÔNG có browser" tone="warn" />
-        <Port label="gRPC-Web bridge" addr=":8081" who="browser, sau khi dịch" tone="bridge" />
+        <Port label="gRPC-Web bridge" addr=":8082" who="browser, sau khi dịch" tone="bridge" />
       </div>
 
       <div className="layout">

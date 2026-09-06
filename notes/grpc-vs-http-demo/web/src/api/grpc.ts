@@ -6,7 +6,7 @@ import type { Product as ProtoProduct } from '../gen/product/v1/product_pb'
 import type { Product, ProductApi, ProductDraft } from '../types'
 import { instrumentedFetch, tagNextCall } from '../wire'
 
-export const GRPC_WEB_BASE_URL = 'http://localhost:8081'
+export const GRPC_WEB_BASE_URL = 'http://localhost:8082'
 export const GRPC_NATIVE_URL = 'http://localhost:50051'
 
 const transport = createGrpcWebTransport({

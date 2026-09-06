@@ -41,7 +41,7 @@ make gen     # hoặc: buf generate
                                       │
              ┌────────────────────────┼────────────────────────┐
              │                        │                        │
-        :8080 REST              :50051 gRPC             :8081 gRPC-Web
+        :8080 REST              :50051 gRPC             :8082 gRPC-Web
         HTTP/1.1 + JSON         HTTP/2 + protobuf       HTTP/1.1 + protobuf
              │                        │                        │
              │                        │                        │
@@ -68,7 +68,7 @@ Chi tiết code:
 | Client gRPC | `web/src/api/grpc.ts` |
 | Wire log | `web/src/wire.ts` |
 
-Cổng `:8081` là `grpcweb.WrapServer(grpcServer)` của `improbable-eng/grpc-web` — bọc **đúng** cái
+Cổng `:8082` là `grpcweb.WrapServer(grpcServer)` của `improbable-eng/grpc-web` — bọc **đúng** cái
 `grpc.Server` ở `:50051`, chạy thuần Go nên không cần Envoy hay Docker. Trong production người ta
 hay dùng Envoy hoặc Nginx cho vai trò này; bản chất vẫn là **một tầng dịch nằm giữa**.
 
@@ -172,7 +172,7 @@ gRPC cần những thứ mà JavaScript trong browser **không có quyền chạ
 
 Nên mới phải đẻ ra gRPC-Web: một **phương ngữ khác** của gRPC, nhét trailer vào cuối body dưới dạng
 một frame đặc biệt, chạy được trên HTTP/1.1, bỏ bớt streaming. Và vì server nói gRPC còn browser nói
-gRPC-Web, phải có ai đó đứng giữa dịch — chính là cổng `:8081` trong demo này.
+gRPC-Web, phải có ai đó đứng giữa dịch — chính là cổng `:8082` trong demo này.
 
 Đây chính là chỗ "thiếu tự nhiên": **để browser gọi được, bạn phải dựng thêm hạ tầng.** HTTP thì
 không cần gì cả — browser sinh ra là để nói HTTP.
